@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+# Review paid plans before creating this Blueprint. See deploy/CLOUD.md.
+previews:
+  generation: "off"
+
+services:
+  - type: pserv
+    name: tactics-api
+    runtime: docker
+    region: frankfurt
+    plan: 0.5c-512mb
+    numInstances: 1
+    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    autoDeployTrigger: "off"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tactics-db
+          property: connectionString
+      - key: AUTH_USERNAME
+        value: trainer
+      - key: AUTH_PASSWORD
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: PUBLIC_HOST
+        fromService:
+          name: tactics-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      - key: DATA_PATH
+        value: /app/data/puzzles.csv
+      - key: STOCKFISH_PATH
+        value: /usr/games/stockfish
+      - key: PORT
+        value: "8000"
+
+  - type: web
+    name: tactics-web
+    runtime: docker
+    region: frankfurt
+    plan: 0.5c-512mb
+    numInstances: 1
+    dockerContext: .
+    dockerfilePath: ./frontend/Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: PORT
+        value: "80"
+      - key: API_UPSTREAM
+        fromService:
+          name: tactics-api
+          type: pserv
+          property: hostport
+
+databases:
+  - name: tactics-db
+    region: frankfurt
+    plan: 0.1c-256mb
+    postgresMajorVersion: "17"
+    databaseName: tactics
+    user: tactics
+    diskSizeGB: 1
+    storageAutoscalingEnabled: false
+    ipAllowList: []

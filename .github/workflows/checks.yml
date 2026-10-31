@@ -1,0 +1,48 @@
+name: Checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tests
+          POSTGRES_PASSWORD: disposable-ci-database
+          POSTGRES_DB: tactics_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tests -d tactics_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv==0.12.23
+      - run: uv sync --locked
+        working-directory: backend
+      - run: uv run pytest
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://tests:disposable-ci-database@localhost:5432/tactics_test

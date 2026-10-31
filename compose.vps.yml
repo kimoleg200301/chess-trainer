@@ -1,0 +1,24 @@
+# docker compose -f compose.yml -f compose.vps.yml up -d --build
+services:
+  backend:
+    environment:
+      COOKIE_SECURE: 'true'
+      ALLOWED_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN to your domain}
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to your domain}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+volumes:
+  caddy_data:
+  caddy_config:

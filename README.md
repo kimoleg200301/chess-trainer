@@ -1,0 +1,130 @@
+# Тактика — личный шахматный тренажёр
+
+Отдельный React-фронтенд, Python API и PostgreSQL. Задачи на тактические мотивы из реальных партий, проверка решения на сервере, интервальное повторение и анализ Stockfish после завершения задания.
+
+## Возможности
+
+- 2500 проверенных задач Lichess (CC0), фильтры по мотиву и рейтингу.
+- Доска за белых/чёрных, допустимые ходы, превращение пешки, ответы соперника.
+- Подсказка, показ решения, статистика и повторение трудных задач.
+- Личный вход; пароли хешируются, сессии хранятся в PostgreSQL.
+- Все данные занятий сохраняются в PostgreSQL 17. SQLite не используется.
+
+Это первая версия с отбором готовых задач. Генерация новых задач движком и текстовые объяснения комбинаций не реализованы. Рейтинг задач взят из Lichess и не равен игровому рейтингу пользователя.
+
+## Запуск на компьютере
+
+Нужны Docker Engine/Desktop с Compose и Python 3 для генерации конфигурации.
+
+```bash
+python3 scripts/configure.py
+docker compose up -d --build
+```
+
+Откройте http://localhost:8080. Логин указан в `AUTH_USERNAME`, пароль — в `AUTH_PASSWORD` файла `.env`. Генератор создаёт случайные пароли и не перезаписывает существующий файл. `.env` не включается в Git и Docker-образы.
+
+При первом запуске выполняются миграции Alembic и импорт задач. Дождитесь состояния `healthy`:
+
+```bash
+docker compose ps
+docker compose logs --tail=60 backend
+```
+
+Команда `docker compose down` останавливает приложение и сохраняет том PostgreSQL. Флаг `down -v` удаляет данные — не используйте его для обычной остановки.
+
+В управляемой среде Codex сборке может требоваться доверенный CA прокси:
+
+```bash
+docker compose -f compose.yml -f compose.managed.yml up -d --build
+```
+
+Этот дополнительный файл не нужен на обычном VPS. Он передаёт доверенные сертификаты только на время сборки, без отключения TLS-проверки.
+
+## Облачный хостинг и VPS
+
+Для Render подготовлен `render.yaml`: отдельные frontend/API Docker-сервисы и управляемая PostgreSQL. Стоимость и шаги размещения — в [deploy/CLOUD.md](deploy/CLOUD.md). Наличие конфигурации не означает, что облачные ресурсы уже созданы.
+
+Для собственного VPS:
+
+1. Установите Docker и скопируйте/клонируйте проект.
+2. Направьте DNS вашего домена на сервер; откройте входящие порты 80 и 443.
+3. Создайте конфигурацию командой `python3 scripts/configure.py --domain chess.example.org`. Если `.env` уже существует, измените `APP_DOMAIN` вручную и сохраните пароли.
+4. Запустите:
+
+```bash
+docker compose -f compose.yml -f compose.vps.yml up -d --build
+```
+
+Caddy получает TLS-сертификат и направляет запросы на фронтенд. Фронтенд проксирует `/api` в Python. Порты API и базы наружу не публикуются; вход в приложение проходит через HTTPS.
+
+Архитектура одинакова в облаке и на VPS:
+
+```text
+Браузер → HTTPS → nginx / React → /api → FastAPI / Stockfish → PostgreSQL
+```
+
+## Данные и резервное копирование
+
+Исходные задачи и их происхождение описаны в [data/README.md](data/README.md). Импорт новых задач:
+
+```bash
+uv run scripts/import_lichess.py --help
+```
+
+После обновления CSV пересоберите backend; импорт идемпотентен. Резервная копия PostgreSQL:
+
+```bash
+bash scripts/backup.sh
+```
+
+Файл появится в `backups/`. Копируйте его на отдельное хранилище: резервная копия на том же сервере не защищает от потери сервера. Перед переносом остановите запись в приложение, сделайте финальный `pg_dump`, восстановите его на целевой PostgreSQL и запустите миграции. Детали — в инструкции облачного размещения.
+
+## Разработка
+
+- `frontend/`: React, TypeScript, Vite, chess.js, nginx.
+- `backend/`: FastAPI, SQLAlchemy, psycopg, Alembic, python-chess.
+- `data/`: компактная база задач и сведения об источнике.
+- `compose*.yml`, `render.yaml`, `deploy/`: развёртывание.
+- [API.md](API.md): контракт между фронтендом и бэкендом.
+
+Фронтенд:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Vite проксирует `/api` на локальный Python-сервер. Бэкенд:
+
+```bash
+cd backend
+uv sync --locked
+# Задайте DATABASE_URL, AUTH_USERNAME, AUTH_PASSWORD, DATA_PATH,
+# COOKIE_SECURE=false и ALLOWED_ORIGINS=http://localhost:5173.
+uv run alembic upgrade head
+uv run python -m app.bootstrap
+uv run uvicorn app.main:app --reload
+```
+
+Локальная PostgreSQL для разработки доступна на `127.0.0.1:55432` после `docker compose -f compose.yml -f compose.dev.yml up -d db`. Используйте пароль из `.env`. Для анализа отдельно установите Stockfish и задайте `STOCKFISH_PATH`.
+
+## Проверки
+
+```bash
+cd frontend
+npm run build
+```
+
+Backend-тесты работают с настоящей PostgreSQL и отдельной временной схемой. Укажите **отдельную тестовую базу**, не рабочую:
+
+```bash
+cd backend
+TEST_DATABASE_URL=postgresql+psycopg://USER:PASSWORD@localhost:55432/tactics_test uv run pytest
+```
+
+Пароль и URL в примере — шаблон. Тесты проверяют вход, защиту сессии, происхождение запросов, правильную стартовую позицию, скрытие ответа, решения, альтернативный мат, повторение и статистику.
+
+## Лицензии компонентов
+
+Данные задач: CC0 Lichess. Фигуры: cburnett, GPL-2.0-or-later, сведения в `frontend/public/pieces/NOTICE.txt`. Stockfish: GPLv3; python-chess: GPLv3+. Исходный код сторонних компонентов доступен по ссылкам их проектов; при распространении сборок соблюдайте их лицензии.

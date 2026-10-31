@@ -1,0 +1,14 @@
+# Build-only CA trust for the current managed development environment.
+# Not needed for your ordinary computer or VPS.
+services:
+  backend:
+    build:
+      secrets:
+        - proxy_ca
+  frontend:
+    build:
+      secrets:
+        - proxy_ca
+secrets:
+  proxy_ca:
+    file: /etc/ssl/certs/ca-certificates.crt

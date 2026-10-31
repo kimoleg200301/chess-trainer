@@ -1,0 +1,16 @@
+THEMES = {
+    "fork": "Вилка", "pin": "Связка", "skewer": "Сквозной удар",
+    "discoveredAttack": "Вскрытое нападение", "doubleCheck": "Двойной шах",
+    "deflection": "Отвлечение", "attraction": "Завлечение",
+    "sacrifice": "Жертва", "hangingPiece": "Незащищённая фигура",
+    "trappedPiece": "Ловля фигуры", "intermezzo": "Промежуточный ход",
+    "clearance": "Освобождение линии", "interference": "Перекрытие",
+    "defensiveMove": "Защитный ход", "backRankMate": "Мат по последней горизонтали",
+    "mateIn1": "Мат в один ход", "mateIn2": "Мат в два хода",
+    "mateIn3": "Мат в три хода", "promotion": "Превращение пешки",
+    "underPromotion": "Слабое превращение", "zugzwang": "Цугцванг",
+    "xRayAttack": "Рентген", "capturingDefender": "Уничтожение защитника",
+    "quietMove": "Тихий ход", "smotheredMate": "Спёртый мат",
+    "advancedPawn": "Далеко продвинутая пешка", "exposedKing": "Открытый король",
+    "kingsideAttack": "Атака на королевском фланге", "queensideAttack": "Атака на ферзевом фланге",
+}

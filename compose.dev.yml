@@ -1,0 +1,5 @@
+# Local Python development and integration tests only; DB stays loopback-only.
+services:
+  db:
+    ports:
+      - '127.0.0.1:55432:5432'

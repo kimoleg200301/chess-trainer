@@ -1,0 +1,54 @@
+name: tactics-lab
+services:
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tactics
+      POSTGRES_USER: trainer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run python3 scripts/configure.py}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U trainer -d tactics']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    shm_size: 128mb
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://trainer:${POSTGRES_PASSWORD:?Run configure}@db:5432/tactics
+      AUTH_USERNAME: ${AUTH_USERNAME:-trainer}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?Run python3 scripts/configure.py}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      DATA_PATH: /app/data/puzzles.csv
+      STOCKFISH_PATH: /usr/games/stockfish
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 10
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: backend:8000
+      PORT: '80'
+    ports:
+      - '127.0.0.1:${APP_PORT:-8080}:80'
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  pgdata:
