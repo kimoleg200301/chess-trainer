@@ -141,7 +141,13 @@ function Trainer({ meta, stats, onChanged }: { meta: Meta | null; stats: Stats |
     <div className="training-layout"><div className="board-column">
       <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : 'начинают'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${attempt.puzzle_id} · ${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       <ChessBoard key={attempt?.id ?? 'initial'} attempt={boardAttempt} busy={busy} hintSquare={hintSquare} onMove={move} />
-      <div className="board-bottomline"><span><span className="connection-dot" />{reveal ? 'Выбирайте ходы варианта для просмотра на доске' : attempt && !done ? 'Нажмите на фигуру и поле назначения' : done ? 'Возьмите идею с собой в следующую партию' : 'Реальные позиции · спокойная практика'}</span><span>{reveal ? `Разбор: ${replayIndex} / ${reveal.solution.length}` : attempt ? `${Math.ceil(attempt.solved_plies / 2)} / ${Math.ceil(attempt.total_plies / 2)} ходов` : 'Без ограничения времени'}</span></div>
+      {attempt && <div className="board-actions">
+        <button className="button primary next-position-button" aria-label="Следующая позиция" disabled={busy || analysisBusy || !meta} onClick={() => attempt.status === 'active' ? setShowSkip(true) : void start()}>
+          {busy ? <Spinner /> : <><span>Следующая позиция</span><ArrowRight size={17} /></>}
+        </button>
+        {showSkip && <div className="skip-confirm" role="alert"><p>Перейти к новой позиции? Эта попытка останется незавершённой.</p><div><button className="text-button" onClick={() => setShowSkip(false)}>Остаться</button><button className="text-button" onClick={() => void start()}>Перейти <ArrowRight size={14} /></button></div></div>}
+      </div>}
+      <div className="board-bottomline"><span><span className="connection-dot" />{reveal ? 'Выбирайте ходы варианта для просмотра на доске' : attempt && !done ? 'Нажмите на фигуру и поле назначения' : done ? 'Возьмите идею с собой в следующую партию' : 'Реальные позиции · спокойная практика'}</span></div>
       <div className="learning-note"><Lightbulb size={20} /><p><strong>Сначала идея, потом ход.</strong> Перед ответом проверьте шахи, взятия и угрозы. Постарайтесь увидеть лучший ответ соперника.</p></div>
     </div>
     <aside className="training-sidebar">
@@ -151,8 +157,7 @@ function Trainer({ meta, stats, onChanged }: { meta: Meta | null; stats: Stats |
         <div className="difficulty-label"><label className="field-label" htmlFor="rating-min">Рейтинг задач</label><span>{minRating}–{maxRating}</span></div>
         <div className="rating-fields"><label><span>От</span><input id="rating-min" type="number" min="0" max="4000" step="100" value={minRating} onChange={event => setMinRating(Number(event.target.value))} /></label><span className="rating-dash">—</span><label><span>До</span><input aria-label="Верхняя граница рейтинга" type="number" min="0" max="4000" step="100" value={maxRating} onChange={event => setMaxRating(Number(event.target.value))} /></label></div>
         <div className="difficulty-presets">{[{ label: 'Разминка', min: 600, max: 1200 }, { label: 'Практика', min: 1200, max: 1800 }, { label: 'Вызов', min: 1800, max: 2400 }].map(preset => <button key={preset.label} className={minRating === preset.min && maxRating === preset.max ? 'selected-preset' : ''} onClick={() => { setMinRating(preset.min); setMaxRating(preset.max); }}>{preset.label}</button>)}</div>
-        <button className="button primary start-button" disabled={busy || analysisBusy || !meta} onClick={() => attempt?.status === 'active' ? setShowSkip(true) : void start()}>{busy ? <Spinner /> : <><span>{!attempt ? 'Начать тренировку' : 'Следующая позиция'}</span><ArrowRight size={17} /></>}</button>
-        {showSkip && <div className="skip-confirm" role="alert"><p>Перейти к новой позиции? Эта попытка останется незавершённой.</p><div><button className="text-button" onClick={() => setShowSkip(false)}>Остаться</button><button className="text-button" onClick={() => void start()}>Перейти <ArrowRight size={14} /></button></div></div>}
+        {!attempt && <button className="button primary start-button" disabled={busy || analysisBusy || !meta} onClick={() => void start()}>{busy ? <Spinner /> : <><span>Начать тренировку</span><ArrowRight size={17} /></>}</button>}
         <p className="settings-footnote">{mode === 'review' ? 'Позиции, которые пора повторить. Фильтры также применяются.' : meta ? `${fmt.format(meta.total_puzzles)} позиций в библиотеке. Параметры применяются к следующей задаче.` : 'Загружаем библиотеку задач…'}</p>
       </section>
       {error && <ErrorNotice message={error} close={() => setError('')} />}
