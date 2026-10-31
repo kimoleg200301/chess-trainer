@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, RotateCcw, Settings2, ShieldCheck, Sparkles, Target, TrendingUp, X, Zap } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, Settings2, ShieldCheck, Sparkles, Target, TrendingUp, X, Zap } from 'lucide-react';
 import ChessBoard from './ChessBoard';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
@@ -77,7 +77,7 @@ function StatsPage({ stats, busy, refresh }: { stats: Stats | null; busy: boolea
   </section>;
 }
 
-function Trainer({ meta, stats, onChanged }: { meta: Meta | null; stats: Stats | null; onChanged: () => void }) {
+function Trainer({ meta, stats, onChanged, visible }: { meta: Meta | null; stats: Stats | null; onChanged: () => void; visible: boolean }) {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [theme, setTheme] = useState('');
   const [minRating, setMinRating] = useState(800);
@@ -95,58 +95,135 @@ function Trainer({ meta, stats, onChanged }: { meta: Meta | null; stats: Stats |
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [sessionSolved, setSessionSolved] = useState(0);
   const [showSkip, setShowSkip] = useState(false);
+  const [phase, setPhase] = useState<'idle' | 'checking' | 'reply'>('idle');
+  const [playback, setPlayback] = useState<{ fen: string; last_move: string } | null>(null);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [feedbackVersion, setFeedbackVersion] = useState(0);
+  const actionPending = useRef(false);
+  const mounted = useRef(true);
+  const boardColumn = useRef<HTMLDivElement>(null);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { if (!visible) setReplayPlaying(false); }, [visible]);
+  useEffect(() => {
+    if (!replayPlaying || !reveal || !visible) return;
+    if (replayIndex >= reveal.solution.length) { setReplayPlaying(false); return; }
+    const timer = window.setTimeout(() => setReplayIndex(index => index + 1), 950);
+    return () => window.clearTimeout(timer);
+  }, [replayPlaying, replayIndex, reveal, visible]);
+  function seekReplay(index: number) { setReplayPlaying(false); setReplayIndex(index); }
+  function toggleReplay() {
+    if (reveal && replayIndex >= reveal.solution.length) setReplayIndex(0);
+    setReplayPlaying(value => !value);
+  }
+  const pause = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
   const label = (id: string) => meta?.themes.find(item => item.id === id)?.name || themeFallback[id] || id;
   const done = !!attempt && attempt.status !== 'active';
   const boardAttempt = useMemo(() => {
+    if (attempt && playback) return { ...attempt, ...playback };
     if (!attempt || !reveal || !initialFen) return attempt;
     const board = new Chess(initialFen);
     for (const item of reveal.solution.slice(0, replayIndex)) board.move(item.uci);
     return { ...attempt, fen: board.fen(), last_move: replayIndex ? reveal.solution[replayIndex - 1].uci : null };
-  }, [attempt, reveal, initialFen, replayIndex]);
+  }, [attempt, reveal, initialFen, replayIndex, playback]);
 
   async function start() {
+    if (actionPending.current || analysisBusy) return;
     if (minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
-    setShowSkip(false); setBusy(true); setError('');
+    actionPending.current = true;
+    setShowSkip(false); setReplayPlaying(false); setBusy(true); setError('');
     try {
       const data = await api<Attempt>('/training/start', { theme: theme || null, min_rating: minRating, max_rating: maxRating, mode });
-      setAttempt(data); setInitialFen(data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral');
-    } catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+      if (!mounted.current) return;
+      setAttempt(data); setInitialFen(data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null);
+      if (window.matchMedia('(max-width: 650px)').matches) boardColumn.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    } catch (err) { if (mounted.current) setError(errorText(err)); }
+    finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
   async function move(uci: string) {
-    if (!attempt || busy) return;
-    setBusy(true); setError(''); setHintSquare(null);
+    if (!attempt || attempt.status !== 'active' || actionPending.current) return;
+    actionPending.current = true;
+    setBusy(true); setPhase('checking'); setError(''); setHintSquare(null); setShowSkip(false);
     try {
-      const result = await api<{ accepted: boolean; attempt: Attempt; feedback: string }>(`/training/${attempt.id}/move`, { move: uci });
-      setAttempt(result.attempt); setFeedback(result.feedback); setFeedbackKind(result.accepted ? 'success' : 'wrong');
+      const result = await api<{ accepted: boolean; attempt: Attempt; reply_move: string | null; feedback: string }>(`/training/${attempt.id}/move`, { move: uci });
+      if (!mounted.current) return;
+      const animate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      // The server has already accepted both moves. Show them separately for readability.
+      if (result.accepted && result.reply_move && animate) {
+        const intermediate = new Chess(attempt.fen);
+        intermediate.move(uci);
+        setPlayback({ fen: intermediate.fen(), last_move: uci }); setPhase('reply');
+        await pause(550);
+        if (!mounted.current) return;
+      }
+      setAttempt(result.attempt); setPlayback(null); setPhase('idle');
+      setFeedback(result.feedback); setFeedbackKind(result.accepted ? 'success' : 'wrong');
+      setFeedbackVersion(value => value + 1);
+      if (result.accepted && animate) await pause(240);
+      if (!mounted.current) return;
       if (result.attempt.status === 'completed') { setSessionSolved(value => value + 1); onChanged(); }
-    } catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+    } catch (err) { if (mounted.current) { setPlayback(null); setError(errorText(err)); } }
+    finally { actionPending.current = false; if (mounted.current) { setBusy(false); setPhase('idle'); } }
   }
   async function hint() {
-    if (!attempt) return; setBusy(true); setError('');
-    try { const result = await api<{ message: string; from_square: string | null; attempt: Attempt }>(`/training/${attempt.id}/hint`, {}); setAttempt(result.attempt); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); }
-    catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+    if (!attempt || attempt.status !== 'active' || actionPending.current) return;
+    actionPending.current = true; setBusy(true); setError(''); setShowSkip(false);
+    try {
+      const result = await api<{ message: string; from_square: string | null; attempt: Attempt }>(`/training/${attempt.id}/hint`, {});
+      if (!mounted.current) return;
+      setAttempt(result.attempt); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); setFeedbackVersion(value => value + 1);
+    } catch (err) { if (mounted.current) setError(errorText(err)); }
+    finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
   async function revealSolution() {
-    if (!attempt) return; setBusy(true); setError('');
-    try { const result = await api<Reveal>(`/training/${attempt.id}/reveal`, {}); setAttempt(result.attempt); setReplayIndex(0); setReveal(result); setHintSquare(null); setFeedback('Разберите продолжение и вернитесь к этой позиции позже.'); setFeedbackKind('neutral'); onChanged(); }
-    catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+    if (!attempt || attempt.status !== 'active' || actionPending.current) return;
+    actionPending.current = true; setBusy(true); setError(''); setShowSkip(false);
+    try {
+      const result = await api<Reveal>(`/training/${attempt.id}/reveal`, {});
+      if (!mounted.current) return;
+      setAttempt(result.attempt); setReplayIndex(0); setReplayPlaying(false); setReveal(result); setHintSquare(null); setFeedback('Просмотрите вариант по шагам или включите воспроизведение.'); setFeedbackKind('neutral'); onChanged();
+    } catch (err) { if (mounted.current) setError(errorText(err)); }
+    finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
   async function getAnalysis() {
-    if (!attempt) return; setAnalysisBusy(true); setError('');
-    try { setAnalysis(await api<Analysis>(`/training/${attempt.id}/analysis`)); }
-    catch (err) { setError(errorText(err)); } finally { setAnalysisBusy(false); }
+    if (!attempt || actionPending.current) return;
+    actionPending.current = true; setAnalysisBusy(true); setError('');
+    try { const result = await api<Analysis>(`/training/${attempt.id}/analysis`); if (mounted.current) setAnalysis(result); }
+    catch (err) { if (mounted.current) setError(errorText(err)); }
+    finally { actionPending.current = false; if (mounted.current) setAnalysisBusy(false); }
   }
+  const statusTitle = phase === 'reply' ? 'Соперник отвечает…' : phase === 'checking' && !done ? 'Проверяем ход…'
+    : attempt?.status === 'completed' ? 'Идея найдена!' : reveal ? 'Разбор позиции'
+    : feedbackKind === 'wrong' ? 'Попробуйте ещё' : hintSquare ? 'Подсказка на доске'
+    : feedbackKind === 'success' ? 'Верный ход. Продолжайте!' : 'Ваш ход';
+  const statusDetail = phase === 'reply' ? 'Ход принят. Следите за ответом на доске.' : phase === 'checking' && !done ? 'Сверяем продолжение…'
+    : attempt?.status === 'completed' ? attempt.mistakes === 0 && attempt.hints_used === 0 ? 'Чистое решение — без ошибок и подсказок.' : 'Комбинация найдена. Повторение поможет закрепить идею.'
+    : feedback || `Играйте за ${attempt?.turn === 'black' ? 'чёрных' : 'белых'}. Выберите фигуру и поле назначения.`;
+  const statusKind = phase !== 'idle' && !done ? 'thinking' : attempt?.status === 'completed' ? 'success' : feedbackKind;
   return <section>
     <div className="page-heading"><div><span className="eyebrow">ТРЕНИРУЙТЕ ШАХМАТНОЕ ЗРЕНИЕ</span><h1>У каждой позиции есть идея.</h1><p>Заметьте мотив. Рассчитайте продолжение. Сделайте свой ход.</p></div><div className="session-summary"><span className="session-icon"><Zap size={19} /></span><div><strong>{sessionSolved} решено</strong><small>в этой тренировке</small></div></div></div>
-    <div className="training-layout"><div className="board-column">
-      <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : 'начинают'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${attempt.puzzle_id} · ${attempt.rating}` : 'Выберите параметры справа'}</span></div>
+    <div className="training-layout"><div ref={boardColumn} className={`board-column ${attempt?.status === 'completed' ? 'board-solved' : ''}`}>
+      <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${attempt.puzzle_id} · ${attempt.rating}` : 'Выберите параметры справа'}</span></div>
+      {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
+        <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>
+        <div><strong>{statusTitle}</strong><p>{statusDetail}</p></div>
+      </div>}
       <ChessBoard key={attempt?.id ?? 'initial'} attempt={boardAttempt} busy={busy} hintSquare={hintSquare} onMove={move} />
       {attempt && <div className="board-actions">
         <button className="button primary next-position-button" aria-label="Следующая позиция" disabled={busy || analysisBusy || !meta} onClick={() => attempt.status === 'active' ? setShowSkip(true) : void start()}>
-          {busy ? <Spinner /> : <><span>Следующая позиция</span><ArrowRight size={17} /></>}
+          <span>Следующая позиция</span>{busy ? <Spinner /> : <ArrowRight size={17} />}
         </button>
         {showSkip && <div className="skip-confirm" role="alert"><p>Перейти к новой позиции? Эта попытка останется незавершённой.</p><div><button className="text-button" onClick={() => setShowSkip(false)}>Остаться</button><button className="text-button" onClick={() => void start()}>Перейти <ArrowRight size={14} /></button></div></div>}
       </div>}
+      {attempt && !done && <div className="board-tools" aria-label="Помощь в решении">
+        <button className="button secondary" disabled={busy} onClick={hint}><Lightbulb size={17} /> Подсказка</button>
+        <button className="button secondary" disabled={busy} onClick={revealSolution}><CircleHelp size={17} /> Решение</button>
+      </div>}
+      {reveal && <div className="board-replay">
+        <div className="replay-toolbar"><span className="label-small">РАЗБОР НА ДОСКЕ</span><button className="button secondary replay-play" disabled={busy} onClick={toggleReplay}>{replayPlaying ? <Pause size={16} /> : <Play size={16} />}{replayPlaying ? 'Пауза' : 'Воспроизвести'}</button></div>
+        <div className="solution-moves">{reveal.solution.map((item, index) => <button key={`${index}-${item.uci}`} aria-label={`Показать позицию после ${item.san}`} aria-pressed={replayIndex === index + 1} onClick={() => seekReplay(index + 1)} className={`${index % 2 === 0 ? 'learner-move' : ''} ${replayIndex === index + 1 ? 'current-move' : ''}`}>{item.san}</button>)}</div>
+        <div className="replay-controls"><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(0)}>В начало</button><div><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(replayIndex - 1)}>← Назад</button><button className="text-button" disabled={replayIndex === reveal.solution.length} onClick={() => seekReplay(replayIndex + 1)}>Далее →</button></div></div>
+      </div>}
+      {attempt && error && <ErrorNotice message={error} close={() => setError('')} />}
       <div className="board-bottomline"><span><span className="connection-dot" />{reveal ? 'Выбирайте ходы варианта для просмотра на доске' : attempt && !done ? 'Нажмите на фигуру и поле назначения' : done ? 'Возьмите идею с собой в следующую партию' : 'Реальные позиции · спокойная практика'}</span></div>
       <div className="learning-note"><Lightbulb size={20} /><p><strong>Сначала идея, потом ход.</strong> Перед ответом проверьте шахи, взятия и угрозы. Постарайтесь увидеть лучший ответ соперника.</p></div>
     </div>
@@ -157,21 +234,19 @@ function Trainer({ meta, stats, onChanged }: { meta: Meta | null; stats: Stats |
         <div className="difficulty-label"><label className="field-label" htmlFor="rating-min">Рейтинг задач</label><span>{minRating}–{maxRating}</span></div>
         <div className="rating-fields"><label><span>От</span><input id="rating-min" type="number" min="0" max="4000" step="100" value={minRating} onChange={event => setMinRating(Number(event.target.value))} /></label><span className="rating-dash">—</span><label><span>До</span><input aria-label="Верхняя граница рейтинга" type="number" min="0" max="4000" step="100" value={maxRating} onChange={event => setMaxRating(Number(event.target.value))} /></label></div>
         <div className="difficulty-presets">{[{ label: 'Разминка', min: 600, max: 1200 }, { label: 'Практика', min: 1200, max: 1800 }, { label: 'Вызов', min: 1800, max: 2400 }].map(preset => <button key={preset.label} className={minRating === preset.min && maxRating === preset.max ? 'selected-preset' : ''} onClick={() => { setMinRating(preset.min); setMaxRating(preset.max); }}>{preset.label}</button>)}</div>
+        {!attempt && error && <ErrorNotice message={error} close={() => setError('')} />}
         {!attempt && <button className="button primary start-button" disabled={busy || analysisBusy || !meta} onClick={() => void start()}>{busy ? <Spinner /> : <><span>Начать тренировку</span><ArrowRight size={17} /></>}</button>}
         <p className="settings-footnote">{mode === 'review' ? 'Позиции, которые пора повторить. Фильтры также применяются.' : meta ? `${fmt.format(meta.total_puzzles)} позиций в библиотеке. Параметры применяются к следующей задаче.` : 'Загружаем библиотеку задач…'}</p>
       </section>
-      {error && <ErrorNotice message={error} close={() => setError('')} />}
       <section className={`panel position-panel ${attempt?.status === 'completed' ? 'completed-panel' : ''}`}>
         {!attempt ? <Empty icon={<Target size={25} />} title="Точность важнее скорости">Выберите мотив или смешанные задачи. Начните с удобного уровня сложности.</Empty> : <>
           <div className="panel-title"><h2>{attempt.status === 'completed' ? 'Идея найдена!' : attempt.status === 'revealed' ? 'Разбор позиции' : 'Найдите продолжение'}</h2>{attempt.status === 'completed' ? <CheckCircle2 size={21} /> : <Target size={19} />}</div>
           <p className="position-description">{attempt.status === 'completed' ? attempt.mistakes === 0 && attempt.hints_used === 0 ? 'Чистое решение. Ещё один знакомый мотив в вашей коллекции.' : 'Вы нашли продолжение. Повторение поможет закрепить эту идею.' : attempt.status === 'revealed' ? 'Проследите за каждым ответом соперника.' : `Ваш ход за ${attempt.turn === 'white' ? 'белых' : 'чёрных'}. Рассчитайте вариант до понятного результата.`}</p>
           <div className="move-progress" aria-label="Прогресс решения">{Array.from({ length: Math.max(1, Math.ceil(attempt.total_plies / 2)) }, (_, index) => <span key={index} className={index < Math.ceil(attempt.solved_plies / 2) ? 'filled' : ''} />)}</div>
-          {feedback && <div className={`feedback ${feedbackKind}`} role="status">{feedbackKind === 'success' ? <CheckCircle2 size={18} /> : feedbackKind === 'wrong' ? <RotateCcw size={18} /> : <Lightbulb size={18} />}<span>{feedback}</span></div>}
-          {!done && <div className="help-actions"><button disabled={busy} onClick={hint}><Lightbulb size={16} /> Подсказка</button><button disabled={busy} onClick={revealSolution}><CircleHelp size={16} /> Решение</button></div>}
           {(attempt.mistakes > 0 || attempt.hints_used > 0) && <p className="attempt-meta">Ошибок: {attempt.mistakes} · Подсказок: {attempt.hints_used}</p>}
           {done && <div className="theme-tags">{attempt.themes.filter(id => !['short', 'long', 'veryLong', 'oneMove'].includes(id) && label(id) !== id).slice(0, 5).map(id => <span key={id}>{label(id)}</span>)}</div>}
-          {reveal && <div className="solution-block"><span className="label-small">ПРОДОЛЖЕНИЕ С НАЧАЛА ЗАДАЧИ</span><div className="solution-moves">{reveal.solution.map((item, index) => <button key={`${index}-${item.uci}`} aria-label={`Показать позицию после ${item.san}`} aria-pressed={replayIndex === index + 1} onClick={() => setReplayIndex(index + 1)} className={`${index % 2 === 0 ? 'learner-move' : ''} ${replayIndex === index + 1 ? 'current-move' : ''}`}>{item.san}</button>)}</div><div className="replay-controls"><button className="text-button" disabled={replayIndex === 0} onClick={() => setReplayIndex(0)}>В начало</button><div><button className="text-button" disabled={replayIndex === 0} onClick={() => setReplayIndex(index => index - 1)}>← Назад</button><button className="text-button" disabled={replayIndex === reveal.solution.length} onClick={() => setReplayIndex(index => index + 1)}>Далее →</button></div></div>{/^https:\/\/lichess\.org\//.test(reveal.game_url) && <a className="source-link" href={reveal.game_url} target="_blank" rel="noreferrer">Посмотреть исходную партию <ChevronRight size={14} /></a>}</div>}
-          {attempt.status === 'completed' && !analysis && <button className="analysis-button" disabled={analysisBusy} onClick={getAnalysis}>{analysisBusy ? <Spinner /> : <Sparkles size={15} />}{analysisBusy ? 'Анализируем позицию…' : 'Проверить итоговую позицию'}</button>}
+          {reveal && /^https:\/\/lichess\.org\//.test(reveal.game_url) && <a className="source-link" href={reveal.game_url} target="_blank" rel="noreferrer">Посмотреть исходную партию <ChevronRight size={14} /></a>}
+          {attempt.status === 'completed' && !analysis && <button className="analysis-button" disabled={busy || analysisBusy} onClick={getAnalysis}>{analysisBusy ? <Spinner /> : <Sparkles size={15} />}{analysisBusy ? 'Анализируем позицию…' : 'Проверить итоговую позицию'}</button>}
           {analysis && <div className="analysis-result"><div><span>{analysis.engine}</span><strong>{analysis.evaluation}</strong></div><p>{analysis.line.length ? analysis.line.join('  ') : 'Продолжение не требуется.'}</p></div>}
         </>}
       </section>
@@ -204,7 +279,7 @@ export default function App() {
   if (loading) return <div className="app-loading"><Brand subtitle /><Spinner /><p>Готовим доску…</p></div>;
   if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); }} />;
   return <div className="app-shell"><header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — тренировка"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Тренировка</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button></nav><div className="account"><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>
-    <main className="main-content">{error && <ErrorNotice message={error} close={() => setError('')} />}{!meta && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}><Trainer meta={meta} stats={stats} onChanged={refreshStats} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}</main>
+    <main className="main-content">{error && <ErrorNotice message={error} close={() => setError('')} />}{!meta && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}><Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}</main>
     <footer className="footer"><span>тактика<span className="brand-dot">.</span> <span className="footer-separator">/</span> Практика, которая остаётся с вами.</span><span><a href="https://database.lichess.org/#puzzles" target="_blank" rel="noreferrer">Позиции Lichess · CC0</a><span className="footer-separator">·</span><a href="/pieces/NOTICE.txt" target="_blank" rel="noreferrer">Фигуры</a></span></footer>
   </div>;
 }

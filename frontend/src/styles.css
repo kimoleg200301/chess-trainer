@@ -15,3 +15,50 @@
 .heading-actions{display:flex;gap:9px;flex-shrink:0;flex-wrap:wrap}.heading-actions .button{white-space:nowrap;font-size:11px;min-height:40px;padding:10px 13px}.export-success{display:flex;align-items:center;gap:9px;padding:10px 14px;border:1px solid #d8e6cb;background:#f0f6e9;border-radius:9px;margin-bottom:20px;color:#66834c;font-size:11px;line-height:1.7}.export-success>svg{flex-shrink:0}.export-success>.icon-button{margin-left:auto;flex-shrink:0}@media(max-width:1024px){.stats-page .page-heading{flex-wrap:wrap}.heading-actions{flex-shrink:1}}@media(max-width:650px){.heading-actions{width:100%}.heading-actions .button{font-size:10px}.export-success{font-size:10px}}
 
 .board-actions{margin-top:14px}.next-position-button{width:100%;min-height:46px;justify-content:space-between}.board-bottomline>span{min-width:0;white-space:normal}
+
+/* Keep the current task and its controls close to the board on every screen. */
+.board-column { scroll-margin-top: 18px; }
+.play-status {
+  display: flex; align-items: center; gap: 13px; min-height: 84px;
+  padding: 14px 17px; margin-bottom: 12px; border: 1px solid #dfe6d8;
+  border-radius: 12px; background: #fff; color: #526e48;
+  transition: background .2s, border-color .2s;
+}
+.play-status-icon {
+  display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px;
+  border-radius: 12px; background: #edf2e7; animation: status-arrive .22s ease-out;
+}
+.play-status strong { display: block; font-size: 14px; line-height: 1.5; }
+.play-status p { color: #78856f; font-size: 11px; line-height: 1.7; margin-top: 3px; }
+.play-status.success { background: #f0f7eb; border-color: #c6dbb9; color: #426b35; }
+.play-status.success .play-status-icon { background: #dcebd1; }
+.play-status.wrong { background: #fff8ef; border-color: #eddbc3; color: #986130; }
+.play-status.wrong .play-status-icon { background: #f9ead6; }
+.play-status.wrong p { color: #916f50; }
+.play-status.thinking { background: #f2f4ef; }
+.board-solved .board-frame { box-shadow: 0 0 0 2px #a9c391, 0 10px 25px #243b2710; }
+.board-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 9px; }
+.board-tools .button { min-height: 44px; padding: 10px; font-size: 12px; }
+.board-column > .error-notice { margin-top: 12px; margin-bottom: 0; }
+.board-replay { margin-top: 12px; padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 11px; }
+.replay-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.replay-play { min-height: 40px; padding: 9px 12px; font-size: 11px; }
+.board-replay .solution-moves { margin: 12px 0 5px; gap: 7px; }
+.board-replay .solution-moves > button { min-width: 40px; min-height: 40px; padding: 8px; }
+.board-replay .replay-controls { border-top: 1px solid #eef0e8; padding-top: 5px; }
+.board-replay .replay-controls .text-button { font-size: 11px; min-height: 40px; }
+@keyframes status-arrive { from { opacity: .4; transform: scale(.85); } to { opacity: 1; transform: scale(1); } }
+@media (max-width: 800px) and (min-width: 651px) {
+  .play-status { padding: 11px; gap: 9px; }
+  .play-status-icon { width: 32px; height: 32px; }
+  .play-status strong { font-size: 12px; }
+  .play-status p { font-size: 10px; }
+  .replay-toolbar { flex-wrap: wrap; }
+}
+@media (max-width: 650px) {
+  .play-status { padding: 12px; min-height: 84px; gap: 11px; }
+  .play-status strong { font-size: 13px; }
+  .play-status p { font-size: 11px; }
+  .board-replay { padding: 12px; }
+  .board-replay .label-small { font-size: 9px; letter-spacing: .8px; }
+}
