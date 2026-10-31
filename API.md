@@ -32,8 +32,15 @@ Attempt:
 `GET /api/stats` -> `{solved:number,total_attempts:number,accuracy:number,streak:number,due_count:number,by_theme:[{id:string,name:string,attempts:number,solved:number}],recent:[{puzzle_id:string,rating:number,status:string,created_at:string}]}`.
 Accuracy is percent of finalized attempts solved cleanly (no mistakes, hints, or reveal). Streak is consecutive clean solves, not daily streak.
 
+## Portable progress
+`GET /api/progress/export` -> authenticated JSON attachment `{format_version:1,exported_at,username,attempts:[...],reviews:[...]}`. Contains only the current user's progress, no password/session/solution data. Limited to 5 MiB and 10,000 records in each collection.
+
+Restore on a new server with `python -m app.restore_progress FILE --username USER`. The target account must exist and have no attempts/reviews. The CLI validates all references and states, then imports atomically; it never replaces existing progress.
+
 ## Health
 `GET /api/health` -> `{status:"ok",database:"ok",engine_available:boolean}`. No authentication required.
+
+Optional `FRONTEND_DIST` serves a built frontend at `/` in the Render Free image. API routes remain distinct and unknown `/api/*` paths return JSON 404.
 
 ## Seed data
 Root will create `data/puzzles.csv` with standard Lichess CSV columns including PuzzleId,FEN,Moves,Rating,Themes,GameUrl,OpeningTags. IMPORTANT: FEN is BEFORE first opponent move. Apply first move for initial learner position; solution begins at second move. Dataset is CC0; provenance in `data/README.md`.

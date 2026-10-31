@@ -9,7 +9,7 @@ from sqlalchemy.engine import make_url
 
 
 @pytest.fixture(scope="session", autouse=True)
-def database():
+def database(tmp_path_factory):
     test_url = os.environ.get("TEST_DATABASE_URL")
     if not test_url:
         pytest.skip("Set TEST_DATABASE_URL to a PostgreSQL test database")
@@ -18,10 +18,15 @@ def database():
     with raw.begin() as db:
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     url = make_url(test_url).update_query_dict({"options": f"-csearch_path={schema}"})
+    frontend = tmp_path_factory.mktemp("frontend")
+    (frontend / "index.html").write_text("<!doctype html><title>Tactics Lab test frontend</title>", encoding="utf-8")
+    (frontend / "assets").mkdir()
+    (frontend / "assets" / "app.js").write_text("/* static test asset */", encoding="utf-8")
     os.environ.update(DATABASE_URL=url.render_as_string(hide_password=False),
                       AUTH_USERNAME="tester", AUTH_PASSWORD="integration-test-only-password",
                       COOKIE_SECURE="false", ALLOWED_ORIGINS="http://testserver",
-                      DATA_PATH=str(Path(__file__).resolve().parents[2] / "data" / "puzzles.csv"))
+                      DATA_PATH=str(Path(__file__).resolve().parents[2] / "data" / "puzzles.csv"),
+                      FRONTEND_DIST=str(frontend))
     from app.config import settings
     from app.db import engine
     settings.cache_clear()

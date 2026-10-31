@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, RotateCcw, Settings2, ShieldCheck, Sparkles, Target, TrendingUp, X, Zap } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, RotateCcw, Settings2, ShieldCheck, Sparkles, Target, TrendingUp, X, Zap } from 'lucide-react';
 import ChessBoard from './ChessBoard';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
@@ -44,7 +44,25 @@ function Login({ onLogin, initialError }: { onLogin: (name: string) => void; ini
 }
 
 function StatsPage({ stats, busy, refresh }: { stats: Stats | null; busy: boolean; refresh: () => void }) {
-  return <section className="stats-page"><div className="page-heading"><div><span className="eyebrow">ВАША ПРАКТИКА</span><h1>Прогресс складывается из ходов</h1><p>Следите за результатами и возвращайтесь к тому, что требует внимания.</p></div><button className="button secondary" disabled={busy} onClick={refresh}>{busy ? <Spinner /> : <RotateCcw size={16} />} Обновить</button></div>
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [exportReady, setExportReady] = useState(false);
+  async function exportProgress() {
+    setExportBusy(true); setExportError(''); setExportReady(false);
+    try {
+      const progress = await api<unknown>('/progress/export');
+      const blob = new Blob([JSON.stringify(progress, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = `tactics-progress-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportReady(true);
+    } catch (err) { setExportError(errorText(err)); } finally { setExportBusy(false); }
+  }
+  return <section className="stats-page"><div className="page-heading"><div><span className="eyebrow">ВАША ПРАКТИКА</span><h1>Прогресс складывается из ходов</h1><p>Следите за результатами и возвращайтесь к тому, что требует внимания.</p></div><div className="heading-actions"><button className="button secondary" disabled={exportBusy} onClick={exportProgress}>{exportBusy ? <Spinner /> : <Download size={16} />} {exportBusy ? 'Готовим файл…' : 'Скачать прогресс'}</button><button className="button secondary" disabled={busy} onClick={refresh}>{busy ? <Spinner /> : <RotateCcw size={16} />} Обновить</button></div></div>
+    {exportError && <ErrorNotice message={exportError} close={() => setExportError('')} />}
+    {exportReady && <div className="export-success" role="status"><CheckCircle2 size={16} /><span>Скачивание началось. Сохраните JSON-файл как резервную копию прогресса.</span><button className="icon-button" aria-label="Закрыть сообщение" onClick={() => setExportReady(false)}><X size={14} /></button></div>}
     {!stats ? <Empty icon={<TrendingUp />} title={busy ? 'Загружаем статистику' : 'Статистика пока недоступна'}>Здесь появятся результаты ваших тренировок.</Empty> : <>
       <div className="stat-cards">{[
         { icon: <CheckCircle2 />, value: fmt.format(stats.solved), name: 'Задач решено', detail: 'С найденным продолжением' },

@@ -9,6 +9,7 @@ import chess.engine
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, delete, exists, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -39,6 +40,7 @@ async def request_policy(request: Request, call_next):
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["X-Frame-Options"] = "DENY"
     return response
 
 
@@ -116,6 +118,8 @@ def meta(db: Session = Depends(get_db), user: User = Depends(current_user)):
 
 @app.post("/api/training/start")
 def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    # Also serialize against an administrative restore into a previously empty account.
+    db.scalar(select(User).where(User.id == user.id).with_for_update())
     if body.theme and body.theme not in THEMES:
         raise HTTPException(422, "Неизвестный тактический мотив.")
     query = select(Puzzle).where(Puzzle.rating.between(body.min_rating, body.max_rating))
@@ -219,3 +223,24 @@ def stats(db: Session = Depends(get_db), user: User = Depends(current_user)):
             "by_theme": sorted(theme_counts.values(), key=lambda item: -item["attempts"]),
             "recent": [{"puzzle_id": row.puzzle_id, "rating": row.puzzle.rating, "status": row.status,
                         "created_at": row.created_at.isoformat()} for row in rows[:10]]}
+
+
+@app.get("/api/progress/export")
+def export_progress(db: Session = Depends(get_db), user: User = Depends(current_user)):
+    from .progress import export_snapshot
+    snapshot = export_snapshot(db, user)
+    return JSONResponse(snapshot.model_dump(mode="json"), headers={
+        "Content-Disposition": f'attachment; filename="tactics-progress-{now().date()}.json"'
+    })
+
+
+@app.api_route("/api/{unmatched:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+def api_not_found(unmatched: str):
+    raise HTTPException(404, "Метод API не найден.")
+
+
+# Optional same-process frontend for the single-service Render trial.
+# API routes above always win; standalone backend behavior is unchanged by default.
+frontend_dist = os.environ.get("FRONTEND_DIST")
+if frontend_dist:
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
