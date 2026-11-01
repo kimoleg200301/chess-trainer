@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, C
 import ChessBoard from './ChessBoard';
 import TrainingSetup from './TrainingSetup';
 import { useAttemptTimer } from './useAttemptTimer';
+import { useScreenWakeLock } from './useScreenWakeLock';
 import { formatDuration } from './time';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
@@ -125,6 +126,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
     running: visible && screen === 'session' && attempt?.status === 'active' && !busy,
     onPersist: persistTime,
   });
+  useScreenWakeLock(visible && screen === 'session' && attempt !== null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { if (!visible || screen !== 'session') setReplayPlaying(false); }, [visible, screen]);
   useEffect(() => {
