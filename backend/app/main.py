@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import and_, delete, exists, func, select, text
+from sqlalchemy import and_, case, delete, exists, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -147,6 +147,18 @@ def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(c
         if body.mode == "review":
             query = query.join(Review, Review.puzzle_id == Puzzle.id).where(Review.user_id == user.id, Review.due_at <= now())
             query = query.order_by(Review.due_at, func.random())
+        elif body.collection == "personal":
+            # Unseen tasks come from the most recent real game first. Once all
+            # are familiar, rotate by the last attempt instead of reopening the
+            # newest task indefinitely. The user lock above serializes starts.
+            last_attempt = (select(func.max(Attempt.id))
+                            .where(Attempt.user_id == user.id, Attempt.puzzle_id == Puzzle.id)
+                            .correlate(Puzzle).scalar_subquery())
+            undated_created = case((Puzzle.source_game_at.is_(None), Puzzle.created_at))
+            query = query.order_by(last_attempt.asc().nulls_first(),
+                                   Puzzle.source_game_at.desc().nulls_last(),
+                                   undated_created.desc().nulls_last(),
+                                   Puzzle.game_url, Puzzle.source_ply.asc().nulls_last(), Puzzle.id)
         else:
             seen = exists().where(Attempt.puzzle_id == Puzzle.id, Attempt.user_id == user.id)
             # Prefer unseen puzzles. Once exhausted, allow practice with familiar material.

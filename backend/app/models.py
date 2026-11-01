@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -41,6 +41,9 @@ class Puzzle(Base):
     collection: Mapped[str] = mapped_column(String(16), default="lichess", server_default="lichess", index=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     rating_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    source_game_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    source_ply: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
     __table_args__ = (
         Index("ix_puzzles_themes", "themes", postgresql_using="gin"),
         CheckConstraint("(collection = 'personal' AND owner_id IS NOT NULL) OR "
@@ -86,6 +89,7 @@ class ImportJob(Base):
     username: Mapped[str | None] = mapped_column(String(40), nullable=True)
     month: Mapped[str | None] = mapped_column(String(7), nullable=True)
     identity_key: Mapped[str] = mapped_column(String(64))
+    analysis_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     status: Mapped[str] = mapped_column(String(16), default="ready")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -98,6 +102,7 @@ class ImportedGame(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id", ondelete="CASCADE"), index=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
+    analysis_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     data: Mapped[dict] = mapped_column(JSONB)
     cursor: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="pending")

@@ -7,6 +7,7 @@ the moving player's point of view; they are never a puzzle difficulty rating.
 from __future__ import annotations
 
 import io
+import time
 from urllib.parse import urlparse
 
 import chess
@@ -134,27 +135,61 @@ def _mates(board, move):
     return probe.is_checkmate()
 
 
-def _unique_tactical_choice(board, infos, min_depth=0):
+REJECTION_REASONS = {
+    "insufficient_depth": "Движок не успел достаточно глубоко проверить лучшие продолжения. Это не означает, что задача невозможна.",
+    "multiple_good_moves": "Найдено несколько близких по силе продолжений. Для этой позиции нужна поддержка нескольких правильных ответов.",
+    "defensive_position": "Улучшение помогает защищаться или удерживать позицию. Текущий режим создаёт задачи на выигрыш материала или мат.",
+    "line_too_long": "За семь полуходов не удалось подтвердить завершение комбинации. Такой момент пока оставлен для разбора.",
+    "unstable_gain": "Устойчивый выигрыш материала или завершённый мат не подтверждён после сильнейшего ответа соперника.",
+    "motif_not_supported": "Продолжение проверено, но тактический мотив пока не распознан.",
+    "missing_predecessor": "Не хватает корректного предыдущего хода для начальной позиции задачи.",
+    "analysis_budget": "Достигнут предел времени проверки комбинации. Это не означает, что из позиции нельзя сделать задачу.",
+    "invalid_engine_line": "Движок не вернул корректное продолжение для полной проверки задачи.",
+    "search_unstable": "Повторный поиск не подтвердил устойчивость единственного лучшего хода. Позиция сохранена для разбора.",
+}
+
+
+class _AnalysisBudgetExceeded(Exception):
+    pass
+
+
+def _bounded_probe(engine, board, nodes, max_time, deadline=None, **kwargs):
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.02:
+            raise _AnalysisBudgetExceeded
+        max_time = min(max_time, remaining)
+    return _probe(engine, board, nodes, max_time, **kwargs)
+
+
+def _choice_rejection(board, infos, min_depth=0):
     if not infos or (move := _pv_move(infos[0], board)) is None:
-        return False
+        return "invalid_engine_line"
     if _mates(board, move):
         # The trainer already accepts any legal immediate checkmate.
-        return True
+        return None
     if infos[0].get("depth", 0) < min_depth:
-        return False
+        return "insufficient_depth"
     first, mate = _score(infos[0], board.turn)
     if first < 120:
-        return False
+        return "defensive_position"
     if len(infos) < 2:
-        return board.legal_moves.count() == 1
+        return None if board.legal_moves.count() == 1 else "insufficient_depth"
     if infos[1].get("depth", 0) < min_depth:
-        return False
+        return "insufficient_depth"
+    if _pv_move(infos[1], board) is None:
+        return "invalid_engine_line"
     second, second_mate = _score(infos[1], board.turn)
     if mate is not None and mate > 0:
-        return second_mate is None or second_mate <= 0
-    # Keep puzzles with a clearly superior winning move; do not reject another
-    # already-winning line merely because Stockfish prefers one by a few pawns.
-    return first - second >= 160 and second < 120
+        return "multiple_good_moves" if second_mate is not None and second_mate > 0 else None
+    # A concrete tactical gain may be clearly better even if the alternative
+    # also preserves a winning position. Require a meaningful gap, then verify
+    # the complete material/mate outcome in _build_puzzle.
+    return None if first - second >= 120 else "multiple_good_moves"
+
+
+def _unique_tactical_choice(board, infos, min_depth=0):
+    return _choice_rejection(board, infos, min_depth) is None
 
 
 def _material(board, color):
@@ -202,9 +237,17 @@ def _move_themes(before, move, after):
     return themes
 
 
-def _build_puzzle(game, ply, start, root_infos, engine, verify_nodes, max_time):
-    if ply < 1 or not _unique_tactical_choice(start, root_infos, min_depth=10):
+def _build_puzzle(game, ply, start, root_infos, engine, verify_nodes, max_time,
+                  *, diagnostics=None, deadline=None):
+    def reject(code):
+        if diagnostics is not None:
+            diagnostics["code"] = code
         return None
+
+    if ply < 1:
+        return reject("missing_predecessor")
+    if reason := _choice_rejection(start, root_infos, min_depth=10):
+        return reject(reason)
     learner = start.turn
     board = start.copy(stack=False)
     initial_material = _material(board, learner)
@@ -218,18 +261,18 @@ def _build_puzzle(game, ply, start, root_infos, engine, verify_nodes, max_time):
         # the lesson needs to continue instead of paying for them twice.
         key = position.fen()
         if key not in cached:
-            cached[key] = _probe(engine, position, verify_nodes, max_time,
-                                 multipv=2 if position.turn == learner else 1)
+            cached[key] = _bounded_probe(engine, position, verify_nodes, max_time, deadline,
+                                         multipv=2 if position.turn == learner else 1)
         return cached[key]
 
     complete = False
     for offset in range(7):
         learner_turn = board.turn == learner
         infos = probe(board)
-        if learner_turn and not _unique_tactical_choice(board, infos, min_depth=10):
-            return None
+        if learner_turn and (reason := _choice_rejection(board, infos, min_depth=10)):
+            return reject(reason)
         if not infos or (move := _pv_move(infos[0], board)) is None:
-            return None
+            return reject("invalid_engine_line")
         must_mate |= (_score(infos[0], learner)[1] or 0) > 0
         before = board.copy(stack=False)
         board.push(move)
@@ -266,16 +309,16 @@ def _build_puzzle(game, ply, start, root_infos, engine, verify_nodes, max_time):
                         must_mate |= (next_mate or 0) > 0
                         alternative_score, alternative_mate = (_score(followup[1], learner)
                             if len(followup) >= 2 else (0, None))
-                        # Do not negate _unique_tactical_choice here: its
-                        # exclusion of another already-winning move would let
-                        # a nominal +1.3 alternative hide an essential +4 move.
+                        # Require several similarly good next moves: a
+                        # nominal +1.3 alternative must not hide an essential
+                        # +4 move that still belongs to this combination.
                         if (next_score >= 120 and next_mate is None
                                 and alternative_score >= 120 and alternative_mate is None
                                 and next_score - alternative_score < 120):
                             complete = True
                             break
     if not complete or not line or len(line) % 2 != 1:
-        return None
+        return reject("line_too_long" if len(line) >= 7 else "unstable_gain")
     first = chess.Move.from_uci(line[0])
     if not start.is_capture(first) and not start.gives_check(first):
         themes.add("quietMove")
@@ -286,28 +329,29 @@ def _build_puzzle(game, ply, start, root_infos, engine, verify_nodes, max_time):
         if count <= 3:
             themes.add(f"mateIn{count}")
     if not themes:
-        return None
+        return reject("motif_not_supported")
     previous = position_at(game, ply - 1)
     predecessor = game["moves"][ply - 1]
     test = previous.copy(stack=False)
     test.push_uci(predecessor)
     if test.fen() != start.fen():
-        return None
+        return reject("missing_predecessor")
     # This is a heuristic estimate until enough users have solved the puzzle.
     rating = min(2300, 700 + 200 * ((len(line) + 1) // 2) + (150 if "quietMove" in themes else 0))
     return {"initial_fen": previous.fen(), "moves": [predecessor, *line], "themes": sorted(themes), "rating": rating}
 
 
 def analyse_position(game: dict, ply: int, engine, *, min_loss_cp: int = 120,
-                     quick_nodes: int = 12_000, verify_nodes: int = 80_000,
-                     max_time: float = 0.6, require_mistake: bool = True) -> dict | None:
-    """Find one improvement; attach a task only after conservative verification.
+                     quick_nodes: int = 12_000, verify_nodes: int = 250_000,
+                     max_time: float = 1.2, require_mistake: bool = True,
+                     max_position_time: float = 14.0) -> dict | None:
+    """Screen ordinary moves cheaply and confirm candidate improvements deeply.
 
-    Set require_mistake=False for public-game mining, including tactics a player
-    actually found. For personal Chess.com review leave it True and restrict the
-    analysed plies to that player's side in the caller.
+    The quick pass is only a gate. A deeper search may correct its preferred
+    move. Interesting moments receive a second, larger comparison before they
+    are reported as errors, then a bounded check of the whole tactical line.
     """
-    if min_loss_cp < 0 or max_time <= 0:
+    if min_loss_cp < 0 or max_time <= 0 or max_position_time <= 0:
         raise ValueError("Некорректные параметры анализа.")
     board = position_at(game, ply)
     if board.is_game_over():
@@ -316,39 +360,93 @@ def analyse_position(game: dict, ply: int, engine, *, min_loss_cp: int = 120,
     if played not in board.legal_moves:
         raise ValueError("Недопустимый ход в партии.")
     color = board.turn
-    quick = _probe(engine, board, quick_nodes, min(max_time, 0.2), multipv=2)
-    if not quick or (quick_best := _pv_move(quick[0], board)) is None:
+    deadline = time.monotonic() + max_position_time
+
+    def probe(nodes, duration, **kwargs):
+        return _bounded_probe(engine, board, nodes, duration, deadline, **kwargs)
+
+    def compare(infos, nodes, duration):
+        played_info = next((item for item in infos if _pv_move(item, board) == played), None)
+        if played_info is None:
+            checked = probe(nodes, duration, root_moves=[played])
+            if not checked or _pv_move(checked[0], board) != played:
+                return None
+            played_info = checked[0]
+        return played_info
+
+    try:
+        quick = probe(quick_nodes, min(max_time, 0.2), multipv=2)
+        if not quick or (quick_best := _pv_move(quick[0], board)) is None:
+            return None
+        if require_mistake and quick_best == played:
+            return None
+        if not require_mistake and not _unique_tactical_choice(board, quick):
+            return None
+        quick_played = compare(quick, quick_nodes, min(max_time, 0.2))
+        if quick_played is None:
+            return None
+        if require_mistake and _loss(_score(quick[0], color), _score(quick_played, color)) < min_loss_cp:
+            return None
+
+        screened = probe(verify_nodes, min(max_time, 0.8), multipv=2)
+        if not screened or (screened_best := _pv_move(screened[0], board)) is None:
+            return None
+        screened_played = compare(screened, verify_nodes, min(max_time, 0.8))
+        if screened_played is None:
+            return None
+        if require_mistake and (screened_best == played or
+                _loss(_score(screened[0], color), _score(screened_played, color)) < min_loss_cp):
+            return None
+
+        # Re-evaluate both choices with a larger budget. In particular, a
+        # shallow "error" can disappear when the played move is searched well.
+        confirmation_nodes = max(600_000, verify_nodes * 2)
+        # Stockfish confirmation starts independently of the quick/screening
+        # tree, so its hash does not merely repeat a shallow preferred move.
+        if "Clear Hash" in getattr(engine, "options", {}):
+            engine.configure({"Clear Hash": None})
+        verified = probe(confirmation_nodes, max_time, multipv=2)
+        if not verified or (best := _pv_move(verified[0], board)) is None:
+            return None
+        played_info = compare(verified, confirmation_nodes, max_time)
+        if played_info is None:
+            return None
+    except _AnalysisBudgetExceeded:
+        # An unconfirmed improvement must not be presented as an actual error.
         return None
-    if require_mistake and quick_best == played:
-        return None
-    if not require_mistake and not _unique_tactical_choice(board, quick):
-        return None
-    quick_played = next((item for item in quick if _pv_move(item, board) == played), None)
-    if quick_played is None:
-        quick_played = _probe(engine, board, quick_nodes, min(max_time, 0.2), root_moves=[played])[0]
-    if require_mistake and _loss(_score(quick[0], color), _score(quick_played, color)) < min_loss_cp:
-        return None
-    verified = _probe(engine, board, verify_nodes, max_time, multipv=2)
-    if not verified or (best := _pv_move(verified[0], board)) is None:
-        return None
-    played_info = next((item for item in verified if _pv_move(item, board) == played), None)
-    if played_info is None:
-        played_info = _probe(engine, board, verify_nodes, max_time, root_moves=[played])[0]
+
     best_score, played_score = _score(verified[0], color), _score(played_info, color)
     loss = _loss(best_score, played_score)
     if require_mistake and (best == played or loss < min_loss_cp):
         return None
-    stable = best == quick_best and (verified[0].get("depth", 0) >= 10 or _mates(board, best))
-    puzzle = _build_puzzle(game, ply, board, verified, engine, verify_nodes, max_time) if stable else None
+    diagnostics = {}
+    # A large enough gap must be present in both independent root searches.
+    # Continuation verification still proves an actual material/mate outcome;
+    # a relative score alone never produces a task.
+    confirmed_reason = _choice_rejection(board, verified, min_depth=10)
+    screen_reason = _choice_rejection(board, screened, min_depth=10)
+    if confirmed_reason is None and (screened_best != best or screen_reason is not None):
+        diagnostics["code"] = "insufficient_depth" if screen_reason == "insufficient_depth" else "search_unstable"
+        puzzle = None
+    else:
+        try:
+            puzzle = _build_puzzle(game, ply, board, verified, engine,
+                                   confirmation_nodes, max_time,
+                                   diagnostics=diagnostics, deadline=deadline)
+        except _AnalysisBudgetExceeded:
+            puzzle = None
+            diagnostics["code"] = "analysis_budget"
     if not require_mistake and puzzle is None:
         return None
+    reason_code = diagnostics.get("code") if puzzle is None else None
+    reason = REJECTION_REASONS.get(reason_code) if reason_code else None
     best_line_san = []
-    probe = board.copy(stack=False)
+    probe_board = board.copy(stack=False)
     for move in verified[0].get("pv", [])[:7]:
-        if move not in probe.legal_moves:
+        if move not in probe_board.legal_moves:
             break
-        best_line_san.append(probe.san(move))
-        probe.push(move)
+        best_line_san.append(probe_board.san(move))
+        probe_board.push(move)
     non_pawns = sum(1 for piece in board.piece_map().values() if piece.piece_type not in {chess.PAWN, chess.KING})
     phase = "endgame" if len(board.piece_map()) <= 12 or (not board.queens and non_pawns <= 6) else "opening" if board.fullmove_number <= 10 else "middlegame"
     return {
@@ -359,6 +457,7 @@ def analyse_position(game: dict, ply: int, engine, *, min_loss_cp: int = 120,
         "best_uci": best.uci(), "best_san": board.san(best), "best_line_san": best_line_san,
         "loss_cp": loss, "score_before": best_score[0], "score_after": played_score[0],
         "mate_before": best_score[1], "mate_after": played_score[1], "puzzle": puzzle,
-        "explanation": ("Найдена проверенная тактическая возможность." if puzzle else
-                        "Найдено улучшение, но короткий однозначный тактический вариант не подтверждён."),
+        "puzzle_reason_code": reason_code, "puzzle_reason": reason,
+        "analysis_depth": min(item.get("depth", 0) for item in verified[:2]),
+        "explanation": "Найдена проверенная тактическая возможность." if puzzle else reason,
     }

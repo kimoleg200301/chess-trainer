@@ -20,7 +20,8 @@ export type Reveal = { attempt: Attempt; solution: { uci: string; san: string }[
 export type ImportJobSummary = {
   id: number; source: 'public' | 'chesscom'; username: string | null; month: string | null;
   status: 'ready' | 'running' | 'completed' | 'failed'; total_games: number; completed_games: number;
-  candidates_count: number; puzzles_count: number; error: string | null; created_at: string;
+  candidates_count: number; available_puzzles_count: number; puzzles_count: number;
+  analysis_version: number; analysis_outdated: boolean; error: string | null; created_at: string;
 };
 export type Improvement = {
   id: number; ply: number; move_number: number; side: 'white' | 'black';
@@ -29,11 +30,14 @@ export type Improvement = {
   mate_before?: number | null; mate_after?: number | null; best_line_san?: string[];
   phase?: 'opening' | 'middlegame' | 'endgame';
   explanation: string; puzzle_available: boolean; puzzle_id: string | null;
+  puzzle_reason_code: string | null; puzzle_reason: string | null;
+  analysis_depth: number | null; analysis_pending: boolean;
 };
 export type ImportedGame = {
   id: number; white: string; black: string; result: string; date: string; event: string;
   game_url: string; status: 'pending' | 'analysing' | 'completed' | 'skipped';
   cursor: number; total_plies: number; error: string | null; candidates: Improvement[];
+  source_game_at: string | null; analysis_version: number;
 };
 export type ImportJob = ImportJobSummary & { games: ImportedGame[] };
 export type CreatedPuzzle = { puzzle_id: string; collection: 'public' | 'personal'; created: boolean };

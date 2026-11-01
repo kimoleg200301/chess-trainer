@@ -217,3 +217,126 @@ def test_generated_tasks_restore_when_original_bank_is_gone(logged):
             source = next(record for record in snapshot.generated_puzzles if record.collection == puzzle.collection)
             for field in ("initial_fen", "moves", "rating", "themes", "game_url", "opening_tags", "rating_estimated"):
                 assert getattr(puzzle, field) == getattr(source, field)
+
+
+def test_generated_backup_preserves_game_and_creation_chronology(logged):
+    from datetime import datetime, timezone
+
+    from app.db import engine
+    from app.models import Puzzle, User
+    from app.progress import ProgressSnapshot, restore_snapshot
+
+    with Session(engine()) as db:
+        current = db.scalar(select(User).where(User.username == "tester"))
+        first = _puzzle(db, "personal", current.id, offset=0)
+        second = _puzzle(db, "personal", current.id, offset=1)
+        unknown = _puzzle(db, "personal", current.id, offset=2)
+        # Creation order deliberately differs from the real games' chronology.
+        first.source_game_at = datetime(2026, 10, 29, 19, tzinfo=timezone.utc)
+        second.source_game_at = datetime(2026, 10, 30, 18, tzinfo=timezone.utc)
+        first.source_ply, second.source_ply = 27, 12
+        first.created_at = datetime(2026, 11, 1, 13, tzinfo=timezone.utc)
+        second.created_at = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)
+        unknown.created_at = datetime(2026, 11, 1, 14, tzinfo=timezone.utc)
+        target = _user(db, "bank-ordered-")
+        target_id, name = target.id, target.username
+        db.commit()
+        expected = {row.initial_fen: (row.source_game_at, row.source_ply, row.created_at)
+                    for row in (first, second, unknown)}
+    data = logged.get("/api/progress/export").json()
+    assert data["format_version"] == 2
+    assert all("created_at" in item and "source_ply" in item and "source_game_at" in item
+               for item in data["generated_puzzles"])
+    snapshot = ProgressSnapshot.model_validate(data)
+    with Session(engine()) as db, db.begin():
+        restore_snapshot(db, snapshot, name)
+    with Session(engine()) as db:
+        restored = list(db.scalars(select(Puzzle).where(Puzzle.owner_id == target_id)
+                                  .order_by(Puzzle.source_game_at.desc().nulls_last(), Puzzle.source_ply)))
+        assert [row.source_ply for row in restored] == [12, 27, None]
+        for row in restored:
+            assert (row.source_game_at, row.source_ply, row.created_at) == expected[row.initial_fen]
+
+
+def test_legacy_v2_without_order_metadata_reuses_public_and_keeps_unknown_game_date(logged):
+    from datetime import datetime, timezone
+
+    from app.db import engine
+    from app.models import Attempt, Puzzle, User, now
+    from app.progress import ProgressSnapshot, restore_snapshot
+
+    with Session(engine()) as db:
+        source = db.scalar(select(User).where(User.username == "tester"))
+        own = _puzzle(db, "personal", source.id)
+        public = _puzzle(db, "public", offset=1)
+        own.source_game_at = public.source_game_at = datetime(2026, 10, 30, tzinfo=timezone.utc)
+        own.source_ply, public.source_ply = 12, 27
+        _attempt(db, source.id, public)
+        target = _user(db, "bank-old-v2-")
+        target_id, name, public_id = target.id, target.username, public.id
+        known_public_date = public.source_game_at
+        db.commit()
+    data = logged.get("/api/progress/export").json()
+    for record in data["generated_puzzles"]:
+        for field in ("source_game_at", "source_ply", "created_at"):
+            record.pop(field)
+    snapshot = ProgressSnapshot.model_validate(data)
+    before_restore = now()
+    with Session(engine()) as db, db.begin():
+        result = restore_snapshot(db, snapshot, name)
+        assert result["puzzles_restored"] == 1
+    after_restore = now()
+    with Session(engine()) as db:
+        personal = db.scalar(select(Puzzle).where(Puzzle.owner_id == target_id))
+        assert personal.source_game_at is None and personal.source_ply is None
+        assert before_restore <= personal.created_at <= after_restore
+        assert db.scalar(select(Attempt.puzzle_id).where(Attempt.user_id == target_id)) == public_id
+        assert db.get(Puzzle, public_id).source_game_at == known_public_date
+        assert db.get(Puzzle, public_id).source_ply == 27
+
+
+def test_source_order_metadata_requires_aware_timestamps_and_integer_ply(logged):
+    from app.db import engine
+    from app.models import User
+    from app.progress import ProgressSnapshot
+
+    with Session(engine()) as db:
+        source = db.scalar(select(User).where(User.username == "tester"))
+        _puzzle(db, "personal", source.id)
+        db.commit()
+    data = logged.get("/api/progress/export").json()
+    for field, value in (("source_game_at", "2026-10-30T12:00:00"),
+                         ("created_at", "2026-10-30T12:00:00"),
+                         ("source_ply", -1), ("source_ply", 1000),
+                         ("source_ply", True), ("source_ply", "12")):
+        invalid = deepcopy(data)
+        invalid["generated_puzzles"][0][field] = value
+        with pytest.raises(ValidationError):
+            ProgressSnapshot.model_validate(invalid)
+    data["generated_puzzles"][0]["source_game_at"] = "2026-10-30T15:00:00+03:00"
+    normalized = ProgressSnapshot.model_validate(data).model_dump(mode="json")
+    assert normalized["generated_puzzles"][0]["source_game_at"] == "2026-10-30T12:00:00Z"
+
+
+def test_public_row_creation_time_is_not_a_definition_collision(logged):
+    from datetime import datetime, timezone
+
+    from app.db import engine
+    from app.models import Attempt, Puzzle, User
+    from app.progress import ProgressSnapshot, restore_snapshot
+
+    with Session(engine()) as db:
+        source = db.scalar(select(User).where(User.username == "tester"))
+        public = _puzzle(db, "public")
+        _attempt(db, source.id, public)
+        target = _user(db, "bank-public-time-")
+        target_id, name, public_id = target.id, target.username, public.id
+        db.commit()
+    data = logged.get("/api/progress/export").json()
+    data["generated_puzzles"][0]["created_at"] = "2020-01-01T00:00:00Z"
+    with Session(engine()) as db, db.begin():
+        result = restore_snapshot(db, ProgressSnapshot.model_validate(data), name)
+        assert result["puzzles_restored"] == 0
+    with Session(engine()) as db:
+        assert db.scalar(select(Attempt.puzzle_id).where(Attempt.user_id == target_id)) == public_id
+        assert db.get(Puzzle, public_id).created_at != datetime(2020, 1, 1, tzinfo=timezone.utc)

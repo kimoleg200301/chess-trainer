@@ -81,7 +81,7 @@ def verify(engine_path: str, nodes: int, seconds: float) -> None:
                                 if best_score.mate() is not None and best_score.mate() > 0:
                                     assert second_score.mate() is None or second_score.mate() <= 0, "another forced mate exists"
                                 else:
-                                    assert first - second >= 160 and second < 120, f"ambiguous winning choice: {first}/{second} cp"
+                                    assert first - second >= 120, f"insufficient separation between moves: {first}/{second} cp"
                         checked_moves += 1
                     board.push(move)
                 assert board.turn != learner

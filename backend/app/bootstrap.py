@@ -57,7 +57,7 @@ def bootstrap():
                 raise RuntimeError("Generated puzzle seed identity mismatch")
             generated.append({"id": puzzle_id, **fields, "collection": "public", "owner_id": None,
                               "rating_estimated": True, "game_url": safe_game_url(record.get("game_url", "")),
-                              "opening_tags": record.get("opening_tags", "")})
+                              "opening_tags": record.get("opening_tags", ""), "source_ply": record.get("source_ply")})
     with Session(engine()) as db:
         user = db.scalar(select(User).where(User.username == cfg.auth_username))
         if not user:
@@ -70,8 +70,10 @@ def bootstrap():
             db.execute(insert(Puzzle).values(rows[offset:offset + 500]).on_conflict_do_nothing(index_elements=["id"]))
         for offset in range(0, len(generated), 500):
             db.execute(insert(Puzzle).values(generated[offset:offset + 500]).on_conflict_do_nothing(index_elements=["id"]))
+        from .imports_api import backfill_generated_puzzles
+        auto_saved = backfill_generated_puzzles(db)
         db.commit()
-    print(f"Bootstrap complete: {len(rows)} Lichess and {len(generated)} generated puzzle records checked; user configured.")
+    print(f"Bootstrap complete: {len(rows)} Lichess and {len(generated)} generated puzzle records checked; {auto_saved} legacy moments auto-saved; user configured.")
 
 
 if __name__ == "__main__":

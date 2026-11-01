@@ -1,10 +1,11 @@
 """Portable progress snapshots. They contain no account or session secrets."""
+from datetime import timezone
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import uuid4
 
 import chess
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
@@ -56,6 +57,16 @@ class GeneratedPuzzleRecord(SnapshotRecord):
     game_url: str = Field(default="", max_length=2000)
     opening_tags: str = Field(default="", max_length=2000)
     rating_estimated: bool = True
+    # Optional for old v2 backups: unknown game dates stay unknown. A restored
+    # legacy definition receives a new row creation date, never a made-up game date.
+    source_game_at: AwareDatetime | None = None
+    source_ply: int | None = Field(default=None, strict=True, ge=0, le=999)
+    created_at: AwareDatetime | None = None
+
+    @field_validator("source_game_at", "created_at")
+    @classmethod
+    def utc_timestamp(cls, value):
+        return value.astimezone(timezone.utc) if value is not None else None
 
     @model_validator(mode="after")
     def legal_definition(self):
@@ -179,9 +190,14 @@ def _validate_attempt(record: AttemptRecord, puzzle: Puzzle):
 
 
 def _same_definition(puzzle: Puzzle, record: GeneratedPuzzleRecord, owner_id: int | None) -> bool:
+    # Creation time belongs to a saved row, not to the chess definition. Old v2
+    # backups also lack source ordering metadata; absence must not turn an
+    # otherwise identical existing public task into a conflicting definition.
+    fields = set(GeneratedPuzzleRecord.model_fields) - {"id", "created_at"}
+    fields -= {field for field in ("source_game_at", "source_ply")
+               if getattr(record, field) is None}
     return puzzle.owner_id == owner_id and all(
-        getattr(puzzle, field) == getattr(record, field)
-        for field in GeneratedPuzzleRecord.model_fields if field != "id"
+        getattr(puzzle, field) == getattr(record, field) for field in fields
     )
 
 
@@ -224,6 +240,7 @@ def restore_snapshot(db: Session, snapshot: ProgressSnapshot, username: str) -> 
     mapped_ids = {puzzle_id: puzzle_id for puzzle_id in puzzles}
     reserved = set(mapped_ids.values())
     new_puzzles = []
+    restored_at = now()
     for record in snapshot.generated_puzzles:
         owner_id = user.id if record.collection == "personal" else None
         desired_id = generate_puzzle_id(record.initial_fen, record.moves, record.collection, owner_id)
@@ -236,6 +253,10 @@ def restore_snapshot(db: Session, snapshot: ProgressSnapshot, username: str) -> 
         reserved.add(desired_id)
         if existing is None:
             values = record.model_dump(exclude={"id"})
+            # Keep recorded insertion chronology when present; give old v2
+            # definitions one common restore date so their fallback order does
+            # not depend on the order of records in the JSON file.
+            values["created_at"] = record.created_at or restored_at
             existing = Puzzle(id=desired_id, owner_id=owner_id, **values)
             new_puzzles.append(existing)
         puzzles[record.id] = existing

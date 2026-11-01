@@ -9,20 +9,21 @@ import chess
 import chess.engine
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from .collections import generate_puzzle_id
 from .config import settings
 from .db import get_db
 from .engine_resources import engine_slots
-from .game_sources import chesscom_games, safe_game_url
+from .game_sources import chesscom_games, safe_game_url, source_game_time
 from .models import ImportJob, ImportedGame, Improvement, Puzzle, User, now
 from .security import current_user
 
 router = APIRouter(prefix="/api")
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2
 
 
 class ChessComImportBody(BaseModel):
@@ -56,11 +57,25 @@ def owned_job(db: Session, job_id: int, user_id: int) -> ImportJob:
     return job
 
 
-def candidate_view(candidate: Improvement) -> dict:
+
+def lock_user(db: Session, user_id: int):
+    """Serialize bank changes with backup/restore without queuing engine requests."""
+    try:
+        db.scalar(select(User).where(User.id == user_id).with_for_update(nowait=True))
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "55P03":
+            raise
+        db.rollback()
+        raise HTTPException(409, "Другая операция с вашей подборкой ещё выполняется. Повторите через несколько секунд.") from None
+
+
+def candidate_view(candidate: Improvement, pending: bool = False) -> dict:
     fields = ("ply", "move_number", "side", "before_fen", "played_uci", "played_san", "best_uci", "best_san",
-              "loss_cp", "score_before", "score_after", "mate_before", "mate_after", "best_line_san", "explanation", "phase")
+              "loss_cp", "score_before", "score_after", "mate_before", "mate_after", "best_line_san", "explanation", "phase",
+              "puzzle_reason_code", "puzzle_reason", "analysis_depth")
     result = {field: candidate.data.get(field) for field in fields}
-    result.update(id=candidate.id, puzzle_available=candidate.data.get("puzzle") is not None, puzzle_id=candidate.puzzle_id)
+    result.update(id=candidate.id, puzzle_available=candidate.data.get("puzzle") is not None,
+                  puzzle_id=candidate.puzzle_id, analysis_pending=pending)
     return result
 
 
@@ -68,18 +83,41 @@ def job_view(db: Session, job: ImportJob, details: bool = True) -> dict:
     games = list(db.scalars(select(ImportedGame).where(ImportedGame.job_id == job.id).order_by(ImportedGame.id)))
     candidates = list(db.scalars(select(Improvement).join(ImportedGame).where(ImportedGame.job_id == job.id).order_by(Improvement.ply)))
     by_game = {}
+    game_map = {game.id: game for game in games}
+
+    def pending(candidate):
+        game = game_map[candidate.game_id]
+        return game.status in {"pending", "analysing"} and candidate.ply >= game.cursor
+
     for candidate in candidates:
         by_game.setdefault(candidate.game_id, []).append(candidate)
+    linked_ids = {candidate.puzzle_id for candidate in candidates if candidate.puzzle_id is not None}
+    # Rechecking may remove an error card while preserving its playable puzzle.
+    # Include saved tasks from these source games, strictly within this bank/owner.
+    game_urls = {url for game in games if (url := safe_game_url(game.data.get("game_url", "")))}
+    saved_ids = set()
+    if linked_ids or game_urls:
+        source_collection = "public" if job.source == "public" else "personal"
+        source_owner = None if source_collection == "public" else job.user_id
+        saved_ids.update(db.scalars(select(Puzzle.id).where(Puzzle.collection == source_collection,
+                                Puzzle.owner_id == source_owner,
+                                or_(Puzzle.id.in_(linked_ids), Puzzle.game_url.in_(game_urls)))))
     result = {"id": job.id, "source": job.source, "username": job.username, "month": job.month,
               "status": job.status, "total_games": len(games),
               "completed_games": sum(game.status in {"completed", "skipped"} for game in games),
-              "candidates_count": len(candidates), "puzzles_count": sum(candidate.puzzle_id is not None for candidate in candidates),
+              "candidates_count": len(candidates),
+              "available_puzzles_count": sum(candidate.data.get("puzzle") is not None and not pending(candidate) for candidate in candidates),
+              "puzzles_count": len(saved_ids),
+              "analysis_version": job.analysis_version,
+              "analysis_outdated": job.analysis_version != ANALYSIS_VERSION or any(game.analysis_version != ANALYSIS_VERSION for game in games),
               "error": job.error, "created_at": job.created_at.isoformat()}
     if details:
         result["games"] = [{"id": game.id, **{field: game.data.get(field, "") for field in
                             ("white", "black", "result", "date", "event", "game_url")},
                             "status": game.status, "cursor": game.cursor, "total_plies": len(game.data["moves"]),
-                            "error": game.error, "candidates": [candidate_view(item) for item in by_game.get(game.id, [])]}
+                            "error": game.error, "analysis_version": game.analysis_version,
+                            "source_game_at": source_game_time(game.data),
+                            "candidates": [candidate_view(item, pending(item)) for item in by_game.get(game.id, [])]}
                            for game in games]
     return result
 
@@ -90,29 +128,45 @@ def create_job(db: Session, user: User, source: str, games: list[dict], username
         raise HTTPException(422, "В подборке нет корректных завершённых партий.")
     identity = hashlib.sha256(json.dumps([ANALYSIS_VERSION, source, username, month, sorted(unique)], separators=(",", ":")).encode()).hexdigest()
     # Serializes repeated imports and generated-progress restore for this user.
-    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    lock_user(db, user.id)
     previous = db.scalar(select(ImportJob).where(ImportJob.user_id == user.id, ImportJob.identity_key == identity))
     if previous:
         return previous
+    # Older releases included the analysis version in identity. Identical games
+    # still reopen their existing batch; the explicit rerun upgrades its analysis.
+    possible = db.scalars(select(ImportJob).where(ImportJob.user_id == user.id,
+                          ImportJob.source == source, ImportJob.username == username,
+                          ImportJob.month == month).order_by(ImportJob.id.desc()))
+    for prior_job in possible:
+        hashes = set(db.scalars(select(ImportedGame.fingerprint).where(ImportedGame.job_id == prior_job.id)))
+        if hashes == set(unique):
+            return prior_job
     count = db.scalar(select(func.count()).select_from(ImportJob).where(ImportJob.user_id == user.id))
     if count >= 100:
         raise HTTPException(422, "Сохранено 100 подборок. Продолжите анализ существующих подборок.")
-    job = ImportJob(user_id=user.id, source=source, username=username, month=month, identity_key=identity)
+    job = ImportJob(user_id=user.id, source=source, username=username, month=month, identity_key=identity,
+                    analysis_version=ANALYSIS_VERSION)
     db.add(job)
     db.flush()
     for game_hash, data in unique.items():
-        data = {**data, "game_url": safe_game_url(data.get("game_url", ""))}
+        stamp = source_game_time(data)
+        data = {**data, "game_url": safe_game_url(data.get("game_url", "")),
+                "source_game_at": stamp.isoformat() if stamp else None}
         prior = db.scalar(select(ImportedGame).join(ImportJob).where(
             ImportJob.user_id == user.id, ImportJob.source == source, ImportJob.username == username,
+            ImportJob.analysis_version == ANALYSIS_VERSION, ImportedGame.analysis_version == ANALYSIS_VERSION,
             ImportedGame.fingerprint == game_hash, ImportedGame.status == "completed").order_by(ImportedGame.id.desc()).limit(1))
-        game = ImportedGame(job_id=job.id, fingerprint=game_hash, data=data)
+        game = ImportedGame(job_id=job.id, fingerprint=game_hash, data=data, analysis_version=ANALYSIS_VERSION)
         if prior:
             game.cursor, game.status = prior.cursor, "completed"
         db.add(game)
         db.flush()
         if prior:
             for item in db.scalars(select(Improvement).where(Improvement.game_id == prior.id)):
-                db.add(Improvement(game_id=game.id, ply=item.ply, data=item.data, puzzle_id=item.puzzle_id))
+                copied = Improvement(game_id=game.id, ply=item.ply, data=item.data, puzzle_id=item.puzzle_id)
+                db.add(copied)
+                if copied.data.get("puzzle") is not None:
+                    create_puzzle(db, job, game, copied)
     db.flush()
     if not db.scalar(select(ImportedGame.id).where(ImportedGame.job_id == job.id, ImportedGame.status != "completed").limit(1)):
         job.status = "completed"
@@ -149,11 +203,47 @@ def create_puzzle(db: Session, job: ImportJob, game: ImportedGame, candidate: Im
     collection = "public" if job.source == "public" else "personal"
     owner = job.user_id if collection == "personal" else None
     puzzle_id = generate_puzzle_id(fields["initial_fen"], fields["moves"], collection, owner)
+    stamp = source_game_time(game.data)
+    game_url = safe_game_url(game.data.get("game_url", ""))
     created_id = db.scalar(insert(Puzzle).values(id=puzzle_id, **fields, collection=collection, owner_id=owner,
-                        rating_estimated=True, game_url=safe_game_url(game.data.get("game_url", "")), opening_tags="")
+                        rating_estimated=True, game_url=game_url, opening_tags="",
+                        source_game_at=stamp, source_ply=candidate.ply)
                         .on_conflict_do_nothing(index_elements=["id"]).returning(Puzzle.id))
+    if created_id is None:
+        existing = db.get(Puzzle, puzzle_id)
+        if existing.source_game_at is None or (stamp is not None and stamp > existing.source_game_at):
+            existing.source_game_at, existing.source_ply, existing.game_url = stamp, candidate.ply, game_url
+        elif existing.source_ply is None:
+            existing.source_ply = candidate.ply
     candidate.puzzle_id = puzzle_id
     return puzzle_id, created_id is not None
+
+
+def backfill_generated_puzzles(db: Session) -> int:
+    """Bootstrap legacy eligible moments and real game dates without rerunning Stockfish."""
+    saved = 0
+    rows = db.execute(select(Improvement, ImportedGame, ImportJob)
+                      .join(ImportedGame, Improvement.game_id == ImportedGame.id)
+                      .join(ImportJob, ImportedGame.job_id == ImportJob.id)
+                      .order_by(ImportJob.user_id, ImportedGame.id, Improvement.ply)).all()
+    locked_user = None
+    for candidate, game, job in rows:
+        if job.user_id != locked_user:
+            db.scalar(select(User).where(User.id == job.user_id).with_for_update())
+            locked_user = job.user_id
+        if candidate.data.get("puzzle") is not None:
+            try:
+                _, created = create_puzzle(db, job, game, candidate)
+                saved += int(created)
+            except HTTPException:
+                # An invalid old candidate must not prevent the application starting.
+                continue
+        elif candidate.puzzle_id:
+            puzzle = db.get(Puzzle, candidate.puzzle_id)
+            if puzzle is not None and puzzle.source_game_at is None:
+                puzzle.source_game_at = source_game_time(game.data)
+                puzzle.source_ply = candidate.ply
+    return saved
 
 
 @router.get("/imports")
@@ -194,14 +284,17 @@ def analyse_step(job_id: int, db: Session = Depends(get_db), user: User = Depend
     job = owned_job(db, job_id, user.id)
     if not db.scalar(select(func.pg_try_advisory_xact_lock(782104, job_id))):
         raise HTTPException(409, "Эта подборка уже обрабатывается. Дождитесь текущего шага.")
+    lock_user(db, user.id)
     db.refresh(job)
+    if job.analysis_version != ANALYSIS_VERSION:
+        raise HTTPException(409, "Метод проверки обновлён. Запустите повторный анализ подборки.")
     if job.status == "completed":
         return job_view(db, job)
     if not engine_slots.acquire(blocking=False):
         raise HTTPException(503, "Движок занят. Повторите шаг анализа через несколько секунд.")
     try:
         job.status, job.error, job.updated_at = "running", None, now()
-        count, deadline = 0, time.monotonic() + 8
+        count, deadline = 0, time.monotonic() + 16
         with chess.engine.SimpleEngine.popen_uci(settings().stockfish_path, timeout=5) as engine:
             engine.configure({"Threads": 1, "Hash": 32})
             for game in db.scalars(select(ImportedGame).where(ImportedGame.job_id == job.id,
@@ -215,25 +308,32 @@ def analyse_step(job_id: int, db: Session = Depends(get_db), user: User = Depend
                     if job.source == "chesscom" and mover_white != learner_white:
                         game.cursor += 1
                         continue
-                    if count >= 2 or time.monotonic() >= deadline:
+                    if count >= 1 or time.monotonic() >= deadline:
                         break
-                    candidate = analyse_position(game.data, ply, engine, max_time=0.4, require_mistake=job.source == "chesscom")
+                    candidate = analyse_position(game.data, ply, engine, max_time=1.2, max_position_time=14,
+                                                 require_mistake=job.source == "chesscom")
                     game.cursor += 1
                     count += 1
+                    found = db.scalar(select(Improvement).where(Improvement.game_id == game.id, Improvement.ply == ply))
                     if candidate is not None:
-                        found = Improvement(game_id=game.id, ply=ply, data=candidate)
-                        db.add(found)
+                        if found is None:
+                            found = Improvement(game_id=game.id, ply=ply, data=candidate)
+                            db.add(found)
+                        else:
+                            found.data = candidate
                         db.flush()
-                        if job.source == "public" and candidate.get("puzzle") is not None:
+                        if candidate.get("puzzle") is not None:
                             create_puzzle(db, job, game, found)
+                    elif found is not None:
+                        db.delete(found)
                 if game.cursor >= len(game.data["moves"]):
-                    game.status = "completed"
-                if count >= 2 or time.monotonic() >= deadline:
+                    game.status, game.analysis_version = "completed", ANALYSIS_VERSION
+                if count >= 1 or time.monotonic() >= deadline:
                     break
         db.flush()
         if not db.scalar(select(ImportedGame.id).where(ImportedGame.job_id == job.id,
                          ImportedGame.status.in_(["pending", "analysing"])).limit(1)):
-            job.status = "completed"
+            job.status, job.analysis_version = "completed", ANALYSIS_VERSION
         db.commit()
         return job_view(db, job)
     except (OSError, chess.engine.EngineError, TimeoutError, ValueError):
@@ -246,9 +346,25 @@ def analyse_step(job_id: int, db: Session = Depends(get_db), user: User = Depend
         engine_slots.release()
 
 
+@router.post("/imports/{job_id}/reanalyze")
+def reanalyse_import(job_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    job = owned_job(db, job_id, user.id)
+    if not db.scalar(select(func.pg_try_advisory_xact_lock(782104, job_id))):
+        raise HTTPException(409, "Подождите завершения текущего шага, затем повторите анализ.")
+    lock_user(db, user.id)
+    # Store old cards until their position is rechecked. Their training tasks and
+    # attempts remain intact even if the new search no longer finds an error.
+    for game in db.scalars(select(ImportedGame).where(ImportedGame.job_id == job.id)):
+        game.cursor, game.status, game.error = 0, "pending", None
+        game.analysis_version = ANALYSIS_VERSION
+    job.status, job.error, job.analysis_version, job.updated_at = "ready", None, ANALYSIS_VERSION, now()
+    db.commit()
+    return job_view(db, job)
+
+
 @router.post("/candidates/{candidate_id}/puzzle")
 def candidate_to_puzzle(candidate_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    lock_user(db, user.id)
     row = db.execute(select(Improvement, ImportedGame, ImportJob).join(ImportedGame, Improvement.game_id == ImportedGame.id)
                      .join(ImportJob, ImportedGame.job_id == ImportJob.id)
                      .where(Improvement.id == candidate_id, ImportJob.user_id == user.id)
@@ -256,6 +372,8 @@ def candidate_to_puzzle(candidate_id: int, db: Session = Depends(get_db), user: 
     if not row:
         raise HTTPException(404, "Момент партии не найден.")
     candidate, game, job = row
+    if candidate.puzzle_id is None and game.status in {"pending", "analysing"} and candidate.ply >= game.cursor:
+        raise HTTPException(409, "Дождитесь повторной проверки этого момента.")
     puzzle_id, created = create_puzzle(db, job, game, candidate)
     db.commit()
     return {"puzzle_id": puzzle_id, "collection": "public" if job.source == "public" else "personal", "created": created}

@@ -25,7 +25,7 @@
 .library-notice > svg { flex-shrink: 0; }
 .library-notice > .icon-button { margin-left: auto; flex-shrink: 0; }
 .library-workspace { display: grid; grid-template-columns: 255px minmax(0, 1fr); gap: 22px; align-items: start; }
-.game-library .import-history { padding: 19px 13px; }
+.game-library .import-history { padding: 19px 13px; min-width: 0; }
 .import-history .panel-title { padding: 0 6px; margin-bottom: 12px; }
 .import-history .panel-title h2 { font-size: 14px; }
 .import-history-list { display: grid; gap: 6px; }
@@ -142,4 +142,16 @@
   .evaluation-comparison { gap: 7px; }
   .move-comparison { gap: 7px; }
   .move-comparison strong { margin-left: 2px; }
+}
+.auto-save-note { display: flex; align-items: flex-start; gap: 6px; }
+.auto-save-note > svg { flex-shrink: 0; margin-top: 3px; }
+.analysis-update-note { margin-top: 13px; padding: 11px 12px; background: #f4f1e6; border: 1px solid #e7dfc7; border-radius: 7px; color: #8a7b50; font-size: 11px; line-height: 1.8; }
+.reanalyze-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 12px; margin-top: 15px; }
+.game-library .reanalyze-actions > .button { min-height: 37px; font-size: 10px; padding: 9px 11px; }
+.reanalyze-actions > span { color: #95a087; font-size: 9px; line-height: 1.7; }
+.improvement-actions > .puzzle-reason { padding: 9px 11px; background: #f0f3e9; border-radius: 6px; color: #7a896c; font-size: 10px; }
+@media (max-width: 700px) {
+  .import-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+  .reanalyze-actions { align-items: flex-start; flex-direction: column; }
+  .analysis-update-note { font-size: 10px; }
 }

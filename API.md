@@ -22,7 +22,7 @@ Attempt:
  last_move:string|null,elapsed_ms:number|null,
  collection:"lichess"|"public"|"personal",rating_estimated:boolean}
 ```
-`turn` is the learner color throughout an attempt. FEN is authoritative.
+`turn` is the learner color throughout an attempt. FEN is authoritative. Personal practice prioritizes unseen puzzles from the newest actual game (`source_game_at` descending), then source ply ascending within a game. Undated puzzles follow dated ones. Once all are seen, the least recently opened puzzle is selected; review mode and other collections retain their prior selection behavior.
 
 - `POST /api/training/{id}/move` `{move:"e2e4",elapsed_ms?:number}` -> `{accepted:boolean,attempt:Attempt,reply_move:string|null,feedback:string}`. Correct learner move plus automatic opponent reply. An incorrect legal move does NOT change the board, but increases mistakes. Invalid moves return 422.
 - `POST /api/training/{id}/hint` optional `{elapsed_ms:number}` -> `{message:string,from_square:string|null,attempt:Attempt}`. Repeated hints count once; not a clean solve.
@@ -43,30 +43,36 @@ All routes require authentication and the existing same-origin checks. IDs are s
 - `POST /api/imports/public` `{}` -> ImportJob, using the packaged `public-games.pgn` (up to 50 games).
 - `GET /api/imports` -> `{jobs:ImportJobSummary[]}`, latest 100 owned batches.
 - `GET /api/imports/{id}` -> ImportJob.
-- `POST /api/imports/{id}/step` `{}` -> ImportJob. Processes at most two selected plies with a bounded Stockfish budget; persists its cursor and results. Chess.com checks only the requested player's moves; public generation checks both colors and can extract a tactic even if the right move was played. Completed jobs return unchanged. A concurrent step returns 409; busy/unavailable engine returns 503 and the user can retry. No worker continues once the client stops requesting steps.
-- `POST /api/candidates/{id}/puzzle` `{}` -> `{puzzle_id,collection:"public"|"personal",created:boolean}`. A candidate without a validated tactical line returns 422. Deterministic identities prevent repeated saves of the same puzzle. Public jobs save eligible puzzles automatically; personal candidates require this action.
+- `POST /api/imports/{id}/step` `{}` -> ImportJob. Processes at most one selected ply with a bounded Stockfish budget and deeper verification for candidate moments; persists its cursor and results. Chess.com checks only the requested player's moves; public generation checks both colors and can extract a tactic even if the right move was played. Completed jobs return unchanged. A concurrent step returns 409; busy/unavailable engine returns 503 and the user can retry. No worker continues once the client stops requesting steps.
+- `POST /api/imports/{id}/reanalyze` `{}` -> ImportJob. Resets the owned batch for the current analysis version. Reuses saved PGNs rather than downloading different games. Old candidates remain visible as pending until their ply is checked; recalculation updates/removes them. Existing puzzle definitions and training history are retained. Concurrent processing returns 409.
+- `POST /api/candidates/{id}/puzzle` `{}` -> `{puzzle_id,collection:"public"|"personal",created:boolean}`. A candidate without a validated tactical line returns 422. Deterministic identities prevent repeated saves of the same puzzle. Both public and personal jobs save eligible puzzles automatically. This endpoint remains an idempotent fallback for older unsaved candidates. Application bootstrap also saves previously eligible unsaved candidates, without recalculating or replacing their definitions.
 
 ImportJobSummary:
 ```
 {id,source:"public"|"chesscom",username:string|null,month:string|null,
  status:"ready"|"running"|"completed"|"failed",total_games,completed_games,
- candidates_count,puzzles_count,error:string|null,created_at}
+ candidates_count,available_puzzles_count,puzzles_count,
+ analysis_version:number,analysis_outdated:boolean,error:string|null,created_at}
 ```
 ImportJob adds `games`:
 ```
 [{id,white,black,result,date,event,game_url,
   status:"pending"|"analysing"|"completed"|"skipped",cursor,total_plies,error,
+  source_game_at:string|null,analysis_version:number,
   candidates:[{id,ply,move_number,side:"white"|"black",before_fen,
     played_uci,played_san,best_uci,best_san,loss_cp,score_before,score_after,
     mate_before,mate_after,best_line_san,phase,explanation,
-    puzzle_available:boolean,puzzle_id:string|null}]}]
+    puzzle_available:boolean,puzzle_id:string|null,analysis_pending:boolean,
+    puzzle_reason_code:string|null,puzzle_reason:string|null,analysis_depth:number|null}]}]
 ```
+`available_puzzles_count` counts confirmed candidate moments with a puzzle definition; pending old candidates are excluded. `puzzles_count` counts distinct saved puzzle IDs linked to the batch or matching its nonempty source-game URLs, scoped to the proper collection and owner. This includes previously saved tasks whose error cards disappeared after recalculation and bundled public tasks from the same corpus. These are separate metrics. `puzzle_reason_code`/`puzzle_reason` explain the current rejection or calculation limit; they do not claim that a position can never form a useful exercise.
+
 `ply` is zero-based. Scores are centipawns from the mover's perspective; signed mate fields distinguish mate for/against the mover. Phase is a heuristic (`opening`, `middlegame`, `endgame`). Inspectable analysis intentionally exposes improved moves on this screen; ordinary training still hides its solution. A useful improvement need not qualify as a tactical puzzle. Generated ratings are approximate (`rating_estimated:true`). Engine limits favor a compact set of unambiguous tactics; they do not guarantee exhaustive or perfect game analysis.
 
-Identical imports resume the stored job. Overlapping batches can reuse completed analyses for the same source and requested player. Import state is stored in PostgreSQL. The UI pauses requests when hidden or navigating away and requires manual resume; an in-flight step may finish and be saved.
+Identical imports resume the stored job. Overlapping batches can reuse completed analyses only for the same source, requested player and current analysis version. Old analyses do not silently become current through reuse. Import state is stored in PostgreSQL. The UI pauses requests when hidden or navigating away and requires manual resume; an in-flight step may finish and be saved.
 
 ## Portable progress
-`GET /api/progress/export` -> authenticated JSON attachment `{format_version:1|2,exported_at,username,attempts:[...],reviews:[...],generated_puzzles?:[...]}`. Contains only the current user's progress, no passwords/sessions. Pure Lichess exports retain version 1. Version 2 includes all owned personal puzzle definitions (including unplayed ones), plus generated public puzzles referenced by progress. These definitions contain solution moves so training remains portable. Import jobs and their intermediate analysis are not included; use a database backup for those.
+`GET /api/progress/export` -> authenticated JSON attachment `{format_version:1|2,exported_at,username,attempts:[...],reviews:[...],generated_puzzles?:[...]}`. Contains only the current user's progress, no passwords/sessions. Pure Lichess exports retain version 1. Version 2 includes all owned personal puzzle definitions (including unplayed ones), plus generated public puzzles referenced by progress. These definitions contain solution moves so training remains portable. Optional `source_game_at`, `source_ply` and `created_at` preserve chronological practice order; earlier version-2 exports without those fields remain supported, with unknown game dates left null. Import jobs and their intermediate analysis are not included; use a database backup for those.
 
 Restore on a new server with `python -m app.restore_progress FILE --username USER`. The target account must exist and have no attempts, reviews or personal puzzles. The CLI validates references, legal puzzle lines and states before importing atomically; it never replaces existing progress. Personal definitions and references are remapped to the target owner. Attempt records include nullable `elapsed_ms`. Older format-version-1 backups without the field remain importable and retain unknown durations. Existing export size and record limits remain enforced.
 

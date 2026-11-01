@@ -82,9 +82,12 @@ def test_scores_are_from_mover_pov_and_faster_mate_is_not_a_blunder():
     assert _loss((180, None), (-100, None)) == 280
 
 
-def test_two_already_winning_moves_are_not_a_single_solution():
+def test_clear_tactical_gap_allows_an_already_winning_alternative():
     board = chess.Board()
-    assert not _unique_tactical_choice(board, [info(board, "e2e4", cp=500), info(board, "d2d4", cp=250)])
+    assert _unique_tactical_choice(board, [info(board, "e2e4", cp=500), info(board, "d2d4", cp=250)])
+    assert not _unique_tactical_choice(board, [info(board, "e2e4", cp=500), info(board, "d2d4", cp=400)])
+    assert _unique_tactical_choice(board, [info(board, "e2e4", cp=500), info(board, "d2d4", cp=380)])
+    assert not _unique_tactical_choice(board, [info(board, "e2e4", cp=500), info(board, "d2d4", cp=381)])
     assert _unique_tactical_choice(board, [info(board, "e2e4", cp=300), info(board, "d2d4", cp=0)])
     shallow = info(board, "d2d4", cp=0)
     shallow["depth"] = 5
@@ -157,9 +160,8 @@ def test_material_endpoint_requires_no_essential_next_learner_move(followup_dept
             return result
 
     puzzle = _build_puzzle(game, 1, board, root, QuietContinuationEngine(), 1000, 0.1)
-    if followup_depth < 10 or second_score >= 120:
-        # A shallow search or a large gap between nominally winning moves
-        # establishes neither resolution nor an unambiguous next puzzle move.
+    if followup_depth < 10:
+        # A shallow search cannot establish that the material gain is stable.
         assert puzzle is None
     else:
         assert puzzle["moves"] == ["g7g6", "d2d4", "h8g8", "d4e5"]
@@ -172,13 +174,16 @@ def test_improvement_can_be_reported_without_fabricating_a_puzzle():
         def analyse(self, board, _limit, *, root_moves=None, **_kwargs):
             if root_moves:
                 return [info(board, root_moves[0].uci(), cp=0)]
-            return [info(board, "e2e4", cp=500), info(board, "d2d4", cp=250)]
+            return [info(board, "e2e4", cp=500), info(board, "d2d4", cp=400)]
 
     candidate = analyse_position(game, 2, AmbiguousEngine())
     assert candidate["loss_cp"] == 500
     assert candidate["best_san"] == "e4"
     assert candidate["played_san"] == "h3"
     assert candidate["puzzle"] is None
+    assert candidate["puzzle_reason_code"] == "multiple_good_moves"
+    assert "нескольких правильных ответов" in candidate["puzzle_reason"]
+    assert candidate["analysis_depth"] == 18
     assert analyse_position(game, 2, AmbiguousEngine(), require_mistake=False) is None
 
 
@@ -227,3 +232,144 @@ def test_real_engine_requires_recapture_and_finishes_forced_mate(stockfish):
     for uci in found["puzzle"]["moves"]:
         final.push_uci(uci)
     assert final.is_checkmate()
+
+
+def test_deeper_search_can_correct_the_quick_best_move():
+    game = parse_games(FOOLS_MATE.replace("Qh4#", "Nc6"))[0]
+
+    class CorrectingEngine:
+        def analyse(self, board, limit, *, root_moves=None, **_kwargs):
+            if root_moves:
+                return [info(board, root_moves[0].uci(), cp=0)]
+            if limit.nodes <= 12000:
+                return [info(board, "d7d5", cp=500), info(board, "b8c6", cp=0)]
+            return [info(board, "d8h4", mate=1), info(board, "d7d5", cp=0)]
+
+    candidate = analyse_position(game, 3, CorrectingEngine())
+    assert candidate["best_uci"] == "d8h4"
+    assert candidate["puzzle"]["moves"] == ["g2g4", "d8h4"]
+    assert candidate["puzzle_reason_code"] is None
+    assert candidate["puzzle_reason"] is None
+
+
+def test_disproved_improvement_is_removed_by_larger_confirmation_search():
+    game = {"initial_fen": chess.STARTING_FEN, "moves": ["a2a3", "a7a6", "h2h3"]}
+    searched = []
+
+    class DisprovingEngine:
+        def analyse(self, board, limit, *, root_moves=None, **_kwargs):
+            searched.append(limit.nodes)
+            if root_moves:
+                return [info(board, root_moves[0].uci(), cp=0)]
+            score = 500 if limit.nodes < 600000 else 10
+            return [info(board, "e2e4", cp=score), info(board, "d2d4", cp=0)]
+
+    assert analyse_position(game, 2, DisprovingEngine()) is None
+    assert max(searched) >= 600000
+
+
+def test_shallow_candidate_gets_depth_reason_instead_of_ambiguity():
+    game = {"initial_fen": chess.STARTING_FEN, "moves": ["a2a3", "a7a6", "h2h3"]}
+
+    class ShallowEngine:
+        def analyse(self, board, _limit, *, root_moves=None, **_kwargs):
+            result = ([info(board, root_moves[0].uci(), cp=0)] if root_moves else
+                      [info(board, "e2e4", cp=500), info(board, "d2d4", cp=0)])
+            for item in result:
+                item["depth"] = 5
+            return result
+
+    found = analyse_position(game, 2, ShallowEngine())
+    assert found["puzzle"] is None
+    assert found["puzzle_reason_code"] == "insufficient_depth"
+    assert found["analysis_depth"] == 5
+
+
+def test_total_search_budget_caps_each_probe_and_does_not_publish_unconfirmed_error(monkeypatch):
+    game = {"initial_fen": chess.STARTING_FEN, "moves": ["a2a3", "a7a6", "h2h3"]}
+    clock = [0.0]
+    durations = []
+    monkeypatch.setattr("app.generation.time.monotonic", lambda: clock[0])
+
+    class SlowEngine:
+        def analyse(self, board, limit, *, root_moves=None, **_kwargs):
+            durations.append(limit.time)
+            clock[0] += limit.time
+            if root_moves:
+                return [info(board, root_moves[0].uci(), cp=0)]
+            return [info(board, "e2e4", cp=500), info(board, "d2d4", cp=0)]
+
+    assert analyse_position(game, 2, SlowEngine(), max_position_time=0.5) is None
+    assert sum(durations) <= 0.5
+
+
+@pytest.mark.parametrize("game,expected", [
+    ({"initial_fen": "r1bq1rk1/pp3ppp/4pn2/3pb1N1/8/2NQ4/PPP2PPP/R3KB1R w KQ - 0 11",
+      "moves": ["e1c1", "h7h6"]}, "e5f4"),
+    ({"initial_fen": "r3k2r/ppp1npp1/1bnp3p/1B1N4/3P4/5N2/PPb2PPP/R1B1RK2 b kq - 3 13",
+      "moves": ["e8c8", "e1e7"]}, "d5e7"),
+])
+def test_real_engine_preserves_tactical_gain_with_winning_second_choice(stockfish, game, expected):
+    found = analyse_position(game, 1, stockfish, quick_nodes=40000,
+                             verify_nodes=500000, max_time=2)
+    assert found is not None and found["best_uci"] == expected
+    puzzle = found["puzzle"]
+    assert puzzle is not None, found["puzzle_reason"]
+    start = position_at(game, 1)
+    board = chess.Board(puzzle["initial_fen"])
+    for uci in puzzle["moves"]:
+        board.push_uci(uci)
+    from app.generation import _material
+    assert _material(board, start.turn) - _material(start, start.turn) >= 300
+
+
+def test_real_engine_drops_shallow_queen_move_false_positive(stockfish):
+    game = {"initial_fen": "1Q5r/4pp1p/q3k1p1/1p6/8/2b5/PPr2PPP/R1B1R1K1 b - - 5 21",
+            "moves": ["c3e1", "b8h8"]}
+    assert analyse_position(game, 1, stockfish, quick_nodes=40000,
+                            verify_nodes=500000, max_time=2) is None
+
+
+def test_task_requires_clear_gap_in_both_independent_root_searches():
+    game = {"initial_fen": chess.STARTING_FEN, "moves": ["a2a3", "a7a6", "h2h3"]}
+
+    class BorderlineEngine:
+        options = {"Clear Hash": None}
+        cleared = False
+
+        def configure(self, options):
+            assert options == {"Clear Hash": None}
+            self.cleared = True
+
+        def analyse(self, board, limit, *, root_moves=None, **_kwargs):
+            if root_moves:
+                return [info(board, root_moves[0].uci(), cp=0)]
+            if limit.nodes >= 600000:
+                assert self.cleared
+            second = 400 if limit.nodes == 250000 else 250
+            return [info(board, "e2e4", cp=500), info(board, "d2d4", cp=second)]
+
+    found = analyse_position(game, 2, BorderlineEngine())
+    assert found["loss_cp"] == 500
+    assert found["puzzle"] is None
+    assert found["puzzle_reason_code"] == "search_unstable"
+
+
+def test_confirmed_improvement_survives_when_combination_check_exhausts_budget(monkeypatch):
+    game = {"initial_fen": chess.STARTING_FEN, "moves": ["a2a3", "a7a6", "h2h3"]}
+    clock = [0.0]
+    monkeypatch.setattr("app.generation.time.monotonic", lambda: clock[0])
+
+    class SlowLineEngine:
+        def analyse(self, board, limit, *, root_moves=None, **_kwargs):
+            clock[0] += limit.time
+            if root_moves:
+                return [info(board, root_moves[0].uci(), cp=0)]
+            if board.turn == chess.BLACK:
+                return [info(board, "e7e5", cp=-500)]
+            return [info(board, "e2e4", cp=500), info(board, "d2d4", cp=0)]
+
+    found = analyse_position(game, 2, SlowLineEngine(), max_position_time=4.5)
+    assert found["puzzle"] is None
+    assert found["puzzle_reason_code"] == "analysis_budget"
+    assert clock[0] <= 4.5

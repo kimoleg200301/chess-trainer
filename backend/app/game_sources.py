@@ -1,5 +1,8 @@
 """Bounded reads of the documented public Chess.com API; no caller-supplied URLs."""
 import json
+import io
+import math
+from datetime import datetime, timezone
 import re
 import time
 from urllib.error import HTTPError, URLError
@@ -29,6 +32,43 @@ def safe_game_url(value: str) -> str:
     except ValueError:
         pass
     return ""
+
+
+
+def source_game_time(game: dict) -> datetime | None:
+    """Use real completion time, falling back to PGN timestamps for older imports."""
+    value = game.get("source_game_at")
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            pass
+    stamp = game.get("end_time")
+    if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and math.isfinite(stamp):
+        try:
+            return datetime.fromtimestamp(stamp, timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            pass
+    headers = {}
+    if isinstance(game.get("pgn"), str):
+        import chess.pgn
+        try:
+            headers = chess.pgn.read_headers(io.StringIO(game["pgn"])) or {}
+        except (ValueError, TypeError):
+            pass
+    dates = [(headers.get("EndDate"), headers.get("EndTime")),
+             (headers.get("UTCDate"), headers.get("UTCTime")),
+             (headers.get("Date") or game.get("date"), headers.get("StartTime"))]
+    for date, clock in dates:
+        if not isinstance(date, str):
+            continue
+        try:
+            parsed = datetime.strptime(date + " " + (clock[:8] if isinstance(clock, str) else "00:00:00"), "%Y.%m.%d %H:%M:%S")
+            return parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
 
 
 def fetch_json(path: str) -> dict:
@@ -87,7 +127,8 @@ def chesscom_games(username: str, month: str | None, limit: int) -> tuple[str, l
     if not isinstance(raw_games, list):
         raise HTTPException(502, "Chess.com вернул некорректный архив партий.")
     eligible = [game for game in raw_games if isinstance(game, dict) and game.get("rules") == "chess"
-                and isinstance(game.get("pgn"), str) and isinstance(game.get("end_time"), (int, float))]
+                and isinstance(game.get("pgn"), str) and isinstance(game.get("end_time"), (int, float))
+                and not isinstance(game["end_time"], bool) and 0 <= game["end_time"] <= 253402300799]
     eligible.sort(key=lambda game: game["end_time"], reverse=True)
     games = []
     for item in eligible[:MAX_CANDIDATE_GAMES]:
@@ -101,6 +142,9 @@ def chesscom_games(username: str, month: str | None, limit: int) -> tuple[str, l
         if username not in {game["white"].lower(), game["black"].lower()}:
             continue
         game["game_url"] = safe_game_url(item.get("url", "")) or safe_game_url(game.get("game_url", ""))
+        game["end_time"] = item["end_time"]
+        stamp = source_game_time(game)
+        game["source_game_at"] = stamp.isoformat() if stamp else None
         games.append(game)
         if len(games) >= limit:
             break
