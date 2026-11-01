@@ -27,6 +27,7 @@ class AttemptRecord(SnapshotRecord):
     last_move: str | None = Field(default=None, pattern=r"^[a-h][1-8][a-h][1-8][qrbn]?$")
     created_at: AwareDatetime
     completed_at: AwareDatetime | None
+    elapsed_ms: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
 
     @model_validator(mode="after")
     def consistent_timestamps(self):

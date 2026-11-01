@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import ChessBoard from './ChessBoard';
 import TrainingSetup from './TrainingSetup';
+import { useAttemptTimer } from './useAttemptTimer';
+import { formatDuration } from './time';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
 import type { Analysis, Attempt, Meta, Reveal, Stats } from './api';
@@ -70,10 +72,12 @@ function StatsPage({ stats, busy, refresh }: { stats: Stats | null; busy: boolea
         { icon: <Target />, value: `${Math.round(stats.accuracy)}%`, name: 'Точность', detail: 'Без ошибок и подсказок' },
         { icon: <Flame />, value: stats.streak, name: 'Текущая серия', detail: 'Чистых решений подряд' },
         { icon: <RotateCcw />, value: stats.due_count, name: 'К повторению', detail: 'Закрепите знакомые идеи' },
+        { icon: <Clock3 />, value: formatDuration(stats.average_solution_ms), name: 'Среднее время', detail: stats.timed_solutions ? `Решений с замером: ${fmt.format(stats.timed_solutions)}` : 'Появится после решения с таймером' },
       ].map(card => <div className="stat-card" key={card.name}><span>{card.icon}</span><strong>{card.value}</strong><h3>{card.name}</h3><p>{card.detail}</p></div>)}</div>
       <div className="stats-columns"><section className="panel"><div className="panel-title"><h2>Тактические мотивы</h2><GraduationCap size={19} /></div>{!stats.by_theme.length ? <Empty icon={<Target />} title="Первый шаг впереди">Решите несколько задач, чтобы увидеть результаты по мотивам.</Empty> : <div className="theme-stats">{stats.by_theme.map(theme => <div className="theme-stat" key={theme.id}><div><span>{theme.name || themeFallback[theme.id] || theme.id}</span><small>{theme.solved} / {theme.attempts}</small></div><div className="progress-track"><span style={{ width: `${theme.attempts ? Math.min(100, theme.solved / theme.attempts * 100) : 0}%` }} /></div></div>)}</div>}</section>
-        <section className="panel"><div className="panel-title"><h2>Последние позиции</h2><span className="subtle-count">{fmt.format(stats.total_attempts)} попыток</span></div>{!stats.recent.length ? <Empty icon={<Sparkles />} title="Начните свою историю">Каждая разобранная позиция останется в истории практики.</Empty> : <div className="recent-list">{stats.recent.map((item, index) => <div className="recent-item" key={`${item.puzzle_id}-${index}`}><span className={`recent-icon ${item.status === 'completed' ? 'success' : ''}`}>{item.status === 'completed' ? <Check size={18} /> : item.status === 'revealed' ? <CircleHelp size={18} /> : <Target size={18} />}</span><div><strong>Позиция #{item.puzzle_id}</strong><small>Рейтинг {item.rating} · {new Date(item.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</small></div><span className="recent-status">{item.status === 'completed' ? 'Решена' : item.status === 'revealed' ? 'Разобрана' : 'В процессе'}</span></div>)}</div>}</section></div>
+        <section className="panel"><div className="panel-title"><h2>Последние позиции</h2><span className="subtle-count">{fmt.format(stats.total_attempts)} попыток</span></div>{!stats.recent.length ? <Empty icon={<Sparkles />} title="Начните свою историю">Каждая разобранная позиция останется в истории практики.</Empty> : <div className="recent-list">{stats.recent.map((item, index) => <div className="recent-item" key={`${item.puzzle_id}-${index}`}><span className={`recent-icon ${item.status === 'completed' ? 'success' : ''}`}>{item.status === 'completed' ? <Check size={18} /> : item.status === 'revealed' ? <CircleHelp size={18} /> : <Target size={18} />}</span><div><strong>Позиция #{item.puzzle_id}</strong><small>Рейтинг {item.rating} · {new Date(item.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</small></div><div className="recent-outcome"><span className="recent-status">{item.status === 'completed' ? 'Решена' : item.status === 'revealed' ? 'Разобрана' : 'В процессе'}</span><span className="recent-time" aria-label={item.elapsed_ms == null ? 'Время не измерялось' : `Время на позицию ${formatDuration(item.elapsed_ms)}`}><Clock3 size={12} />{formatDuration(item.elapsed_ms)}</span></div></div>)}</div>}</section></div>
       <p className="stats-note">Точность считается по завершённым попыткам. Решение с подсказкой, ошибкой или просмотром ответа не считается чистым.</p>
+      <p className="stats-note timing-note">Среднее время учитывает только решённые задачи с замером. Паузы и ожидание ответа сервера не учитываются.</p>
     </>}
   </section>;
 }
@@ -103,6 +107,24 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
   const actionPending = useRef(false);
   const mounted = useRef(true);
   const sessionBack = useRef<HTMLButtonElement>(null);
+  const currentAttempt = useRef(attempt);
+  currentAttempt.current = attempt;
+  const [timeSaveFailed, setTimeSaveFailed] = useState(false);
+  const persistTime = useCallback((attemptId: number, elapsedMs: number, keepalive: boolean) => {
+    void api<Attempt>(`/training/${attemptId}/time`, { elapsed_ms: elapsedMs }, 'POST', { keepalive }).then(result => {
+      if (!mounted.current) return;
+      setAttempt(previous => previous?.id === attemptId && previous.status === 'active' && (previous.elapsed_ms ?? -1) < (result.elapsed_ms ?? -1)
+        ? { ...previous, elapsed_ms: result.elapsed_ms } : previous);
+      if (currentAttempt.current?.id === attemptId) setTimeSaveFailed(false);
+    }).catch(() => {
+      if (mounted.current && !keepalive && currentAttempt.current?.id === attemptId && currentAttempt.current.status === 'active') setTimeSaveFailed(true);
+    });
+  }, []);
+  const timer = useAttemptTimer({
+    attemptId: attempt?.id ?? null, elapsedMs: attempt?.elapsed_ms ?? null,
+    running: visible && screen === 'session' && attempt?.status === 'active' && !busy,
+    onPersist: persistTime,
+  });
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { if (!visible || screen !== 'session') setReplayPlaying(false); }, [visible, screen]);
   useEffect(() => {
@@ -137,11 +159,12 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
     if (actionPending.current || analysisBusy) return;
     if (minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
     actionPending.current = true;
+    timer.pause();
     setShowSkip(false); setReplayPlaying(false); setBusy(true); setError('');
     try {
       const data = await api<Attempt>('/training/start', { theme: theme || null, min_rating: minRating, max_rating: maxRating, mode });
       if (!mounted.current) return;
-      setAttempt(data); setInitialFen(data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null);
+      setAttempt(data); setInitialFen(data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null); setTimeSaveFailed(false);
       if (newSession) setSessionSolved(0);
       onScreenChange('session');
       window.scrollTo({ top: 0, behavior: 'instant' });
@@ -151,9 +174,10 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
   async function move(uci: string) {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     actionPending.current = true;
+    const elapsedMs = timer.pause();
     setBusy(true); setPhase('checking'); setError(''); setHintSquare(null); setShowSkip(false);
     try {
-      const result = await api<{ accepted: boolean; attempt: Attempt; reply_move: string | null; feedback: string }>(`/training/${attempt.id}/move`, { move: uci });
+      const result = await api<{ accepted: boolean; attempt: Attempt; reply_move: string | null; feedback: string }>(`/training/${attempt.id}/move`, { move: uci, elapsed_ms: elapsedMs });
       if (!mounted.current) return;
       const animate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       // The server has already accepted both moves. Show them separately for readability.
@@ -164,7 +188,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
         await pause(550);
         if (!mounted.current) return;
       }
-      setAttempt(result.attempt); setPlayback(null); setPhase('idle');
+      setAttempt(result.attempt); setPlayback(null); setPhase('idle'); setTimeSaveFailed(false);
       setFeedback(result.feedback); setFeedbackKind(result.accepted ? 'success' : 'wrong');
       setFeedbackVersion(value => value + 1);
       if (result.accepted && animate) await pause(240);
@@ -175,21 +199,25 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
   }
   async function hint() {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
-    actionPending.current = true; setBusy(true); setError(''); setShowSkip(false);
+    actionPending.current = true;
+    const elapsedMs = timer.pause();
+    setBusy(true); setError(''); setShowSkip(false);
     try {
-      const result = await api<{ message: string; from_square: string | null; attempt: Attempt }>(`/training/${attempt.id}/hint`, {});
+      const result = await api<{ message: string; from_square: string | null; attempt: Attempt }>(`/training/${attempt.id}/hint`, { elapsed_ms: elapsedMs });
       if (!mounted.current) return;
-      setAttempt(result.attempt); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); setFeedbackVersion(value => value + 1);
+      setAttempt(result.attempt); setTimeSaveFailed(false); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); setFeedbackVersion(value => value + 1);
     } catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
   async function revealSolution() {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
-    actionPending.current = true; setBusy(true); setError(''); setShowSkip(false);
+    actionPending.current = true;
+    const elapsedMs = timer.pause();
+    setBusy(true); setError(''); setShowSkip(false);
     try {
-      const result = await api<Reveal>(`/training/${attempt.id}/reveal`, {});
+      const result = await api<Reveal>(`/training/${attempt.id}/reveal`, { elapsed_ms: elapsedMs });
       if (!mounted.current) return;
-      setAttempt(result.attempt); setReplayIndex(0); setReplayPlaying(false); setReveal(result); setHintSquare(null); setFeedback('Просмотрите вариант по шагам или включите воспроизведение.'); setFeedbackKind('neutral'); onChanged();
+      setAttempt(result.attempt); setTimeSaveFailed(false); setReplayIndex(0); setReplayPlaying(false); setReveal(result); setHintSquare(null); setFeedback('Просмотрите вариант по шагам или включите воспроизведение.'); setFeedbackKind('neutral'); onChanged();
     } catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
@@ -209,6 +237,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
     : feedback || `Играйте за ${attempt?.turn === 'black' ? 'чёрных' : 'белых'}. Выберите фигуру и поле назначения.`;
   const statusKind = phase !== 'idle' && !done ? 'thinking' : attempt?.status === 'completed' ? 'success' : feedbackKind;
   function openSetup() {
+    timer.pause();
     setReplayPlaying(false); setShowSkip(false); setError(''); onScreenChange('setup');
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
@@ -221,7 +250,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
   />;
   return <section className="training-session" aria-label="Решение позиции">
     <div className={`board-column ${attempt.status === 'completed' ? 'board-solved' : ''}`}>
-      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><span>{sessionSolved} решено</span></div>
+      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Активное время решения. Паузы и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
       <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${attempt.puzzle_id} · ${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
         <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>
@@ -243,6 +272,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
         <div className="solution-moves">{reveal.solution.map((item, index) => <button key={`${index}-${item.uci}`} aria-label={`Показать позицию после ${item.san}`} aria-pressed={replayIndex === index + 1} onClick={() => seekReplay(index + 1)} className={`${index % 2 === 0 ? 'learner-move' : ''} ${replayIndex === index + 1 ? 'current-move' : ''}`}>{item.san}</button>)}</div>
         <div className="replay-controls"><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(0)}>В начало</button><div><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(replayIndex - 1)}>← Назад</button><button className="text-button" disabled={replayIndex === reveal.solution.length} onClick={() => seekReplay(replayIndex + 1)}>Далее →</button></div></div>
       </div>}
+      {timeSaveFailed && <p className="time-save-notice" role="status">Время пока не сохранено. Повторим отправку при следующем действии.</p>}
       {attempt && error && <ErrorNotice message={error} close={() => setError('')} />}
       {done && <div className="session-details">
         {(attempt.mistakes > 0 || attempt.hints_used > 0) && <p className="attempt-meta">Ошибок: {attempt.mistakes} · Подсказок: {attempt.hints_used}</p>}

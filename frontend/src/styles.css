@@ -97,3 +97,23 @@
   .training-session .board-column { width: 100%; }
   .session-toolbar { margin-bottom: 4px; }
 }
+
+.session-metrics { display: flex; align-items: center; gap: 13px; font-size: 11px; color: var(--muted); }
+.attempt-timer { display: inline-flex; align-items: center; gap: 6px; color: #456240; background: #edf2e7; border: 1px solid #dfe7d8; border-radius: 8px; padding: 7px 9px; font-size: 13px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.attempt-timer > span { min-width: 4ch; text-align: right; }
+.attempt-timer.finished { background: #e5f0de; border-color: #c6dbb9; }
+.time-save-notice { font-size: 11px; line-height: 1.7; color: #916f50; margin-top: 12px; }
+.stat-cards { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.stat-card:last-child strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+.recent-outcome { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; margin-left: auto; flex-shrink: 0; }
+.recent-outcome .recent-status { margin-left: 0; }
+.recent-time { display: inline-flex; gap: 4px; align-items: center; color: #697e5f; font-size: 11px; font-variant-numeric: tabular-nums; }
+.stats-note.timing-note { margin-top: 8px; }
+@media (max-width: 1100px) {
+  .stat-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat-card:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 380px) {
+  .session-metrics { gap: 8px; font-size: 10px; }
+  .attempt-timer { padding: 6px 7px; font-size: 12px; }
+}

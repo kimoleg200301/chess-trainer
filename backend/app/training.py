@@ -17,7 +17,7 @@ def attempt_view(attempt: Attempt) -> dict:
         "solved_plies": attempt.ply_index - 1,
         "total_plies": len(attempt.puzzle.moves) - 1,
         "mistakes": attempt.mistakes, "hints_used": attempt.hints_used,
-        "last_move": attempt.last_move,
+        "last_move": attempt.last_move, "elapsed_ms": attempt.elapsed_ms,
     }
 
 
@@ -29,6 +29,13 @@ def get_attempt(db: Session, attempt_id: int, user_id: int, active: bool = True)
     if active and attempt.status != "active":
         raise HTTPException(409, "Эта задача уже завершена. Выберите следующую.")
     return attempt
+
+
+def record_elapsed(attempt: Attempt, elapsed_ms: int | None):
+    # Caller holds the attempt row lock. Older heartbeats cannot roll the clock
+    # back, and delayed requests cannot change an already finalized duration.
+    if attempt.status == "active" and elapsed_ms is not None:
+        attempt.elapsed_ms = max(attempt.elapsed_ms or 0, elapsed_ms)
 
 
 def schedule_review(db: Session, attempt: Attempt, clean: bool = False):

@@ -4,12 +4,13 @@ export type Attempt = {
   id: number; puzzle_id: string; fen: string; rating: number; themes: string[];
   status: 'active' | 'completed' | 'revealed'; turn: 'white' | 'black';
   solved_plies: number; total_plies: number; mistakes: number; hints_used: number;
-  last_move: string | null;
+  last_move: string | null; elapsed_ms: number | null;
 };
 export type Stats = {
   solved: number; total_attempts: number; accuracy: number; streak: number; due_count: number;
+  average_solution_ms: number | null; timed_solutions: number;
   by_theme: { id: string; name: string; attempts: number; solved: number }[];
-  recent: { puzzle_id: string; rating: number; status: string; created_at: string }[];
+  recent: { puzzle_id: string; rating: number; status: string; created_at: string; elapsed_ms: number | null }[];
 };
 export type Analysis = { evaluation: string; line: string[]; engine: string };
 export type Reveal = { attempt: Attempt; solution: { uci: string; san: string }[]; game_url: string };
@@ -18,11 +19,11 @@ export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
-export async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
+export async function api<T>(path: string, body?: unknown, method?: string, options: { keepalive?: boolean } = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
-      method: method || (body === undefined ? 'GET' : 'POST'), credentials: 'same-origin',
+      method: method || (body === undefined ? 'GET' : 'POST'), credentials: 'same-origin', keepalive: options.keepalive,
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });

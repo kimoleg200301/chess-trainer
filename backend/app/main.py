@@ -20,7 +20,7 @@ from .db import get_db
 from .models import Attempt, LoginSession, Puzzle, Review, User, now
 from .security import create_session, current_user, hash_password, login_limiter, token_hash, verify_password
 from .themes import THEMES
-from .training import attempt_view, finalize, get_attempt, play_move, schedule_review, solution
+from .training import attempt_view, finalize, get_attempt, play_move, record_elapsed, schedule_review, solution
 
 app = FastAPI(title="Tactics Lab API", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
 engine_slots = threading.BoundedSemaphore(1)
@@ -67,7 +67,15 @@ class StartBody(BaseModel):
         return self
 
 
-class MoveBody(BaseModel):
+class TimingBody(BaseModel):
+    elapsed_ms: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
+
+
+class TimeBody(BaseModel):
+    elapsed_ms: int = Field(strict=True, ge=0, le=2**53 - 1)
+
+
+class MoveBody(TimingBody):
     move: str = Field(min_length=4, max_length=5, pattern=r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
 
@@ -147,12 +155,14 @@ def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(c
 @app.post("/api/training/{attempt_id}/move")
 def move(attempt_id: int, body: MoveBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     attempt = get_attempt(db, attempt_id, user.id)
+    record_elapsed(attempt, body.elapsed_ms)
     return play_move(db, attempt, body.move)
 
 
 @app.post("/api/training/{attempt_id}/hint")
-def hint(attempt_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def hint(attempt_id: int, body: TimingBody | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)):
     attempt = get_attempt(db, attempt_id, user.id)
+    record_elapsed(attempt, body.elapsed_ms if body else None)
     if not attempt.hints_used:
         schedule_review(db, attempt)
     attempt.hints_used = 1
@@ -162,12 +172,21 @@ def hint(attempt_id: int, db: Session = Depends(get_db), user: User = Depends(cu
 
 
 @app.post("/api/training/{attempt_id}/reveal")
-def reveal(attempt_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def reveal(attempt_id: int, body: TimingBody | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)):
     attempt = get_attempt(db, attempt_id, user.id, active=False)
     if attempt.status == "active":
+        record_elapsed(attempt, body.elapsed_ms if body else None)
         finalize(db, attempt, "revealed")
         db.commit()
     return {"attempt": attempt_view(attempt), "solution": solution(attempt.puzzle), "game_url": attempt.puzzle.game_url}
+
+
+@app.post("/api/training/{attempt_id}/time")
+def save_time(attempt_id: int, body: TimeBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    attempt = get_attempt(db, attempt_id, user.id, active=False)
+    record_elapsed(attempt, body.elapsed_ms)
+    db.commit()
+    return attempt_view(attempt)
 
 
 @app.get("/api/training/{attempt_id}/analysis")
@@ -203,6 +222,7 @@ def stats(db: Session = Depends(get_db), user: User = Depends(current_user)):
     completed = [row for row in rows if row.completed_at is not None]
     is_clean = lambda a: a.status == "completed" and a.mistakes == 0 and a.hints_used == 0
     clean = sum(is_clean(row) for row in completed)
+    measured_solutions = [row.elapsed_ms for row in completed if row.status == "completed" and row.elapsed_ms is not None]
     streak = 0
     for row in sorted(completed, key=lambda a: a.completed_at, reverse=True):
         if not is_clean(row):
@@ -220,9 +240,11 @@ def stats(db: Session = Depends(get_db), user: User = Depends(current_user)):
     return {"solved": sum(row.status == "completed" for row in completed), "total_attempts": len(rows),
             "accuracy": round(100 * clean / len(completed), 1) if completed else 0,
             "streak": streak, "due_count": due,
+            "average_solution_ms": round(sum(measured_solutions) / len(measured_solutions)) if measured_solutions else None,
+            "timed_solutions": len(measured_solutions),
             "by_theme": sorted(theme_counts.values(), key=lambda item: -item["attempts"]),
             "recent": [{"puzzle_id": row.puzzle_id, "rating": row.puzzle.rating, "status": row.status,
-                        "created_at": row.created_at.isoformat()} for row in rows[:10]]}
+                        "created_at": row.created_at.isoformat(), "elapsed_ms": row.elapsed_ms} for row in rows[:10]]}
 
 
 @app.get("/api/progress/export")

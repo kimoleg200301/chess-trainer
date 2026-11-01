@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -55,8 +55,10 @@ class Attempt(Base):
     last_move: Mapped[str | None] = mapped_column(String(5), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    elapsed_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     puzzle: Mapped[Puzzle] = relationship(lazy="joined")
-    __table_args__ = (Index("ix_attempts_user_completed", "user_id", "completed_at"),)
+    __table_args__ = (Index("ix_attempts_user_completed", "user_id", "completed_at"),
+                      CheckConstraint("elapsed_ms >= 0", name="ck_attempts_elapsed_ms_nonnegative"))
 
 
 class Review(Base):
