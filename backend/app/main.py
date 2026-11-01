@@ -10,9 +10,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import and_, case, delete, exists, func, select, text
+from sqlalchemy import and_, case, delete, exists, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from .collections import Collection, COLLECTION_NAMES, collection_filter, visible_puzzles
 from .config import settings
@@ -58,6 +58,7 @@ class LoginBody(BaseModel):
 class StartBody(BaseModel):
     collection: Collection = "lichess"
     puzzle_id: str | None = Field(default=None, min_length=1, max_length=32)
+    exclude_attempt_id: int | None = Field(default=None, strict=True, ge=1, le=2**31 - 1)
     theme: str | None = Field(default=None, max_length=64)
     min_rating: int = Field(default=800, ge=0, le=4000)
     max_rating: int = Field(default=1800, ge=0, le=4000)
@@ -130,49 +131,90 @@ def meta(collection: Collection = "lichess", db: Session = Depends(get_db), user
             "collections": [{"id": key, "name": name, "count": sum(collection_counts.values()) if key == "all" else collection_counts.get(key, 0)} for key, name in COLLECTION_NAMES.items()]}
 
 
+def started_attempt_view(attempt: Attempt, *, resumed: bool) -> dict:
+    # A resumed attempt may be midway through a combination. Replays still
+    # begin at the original learner position rather than its current FEN.
+    initial = chess.Board(attempt.puzzle.initial_fen)
+    initial.push_uci(attempt.puzzle.moves[0])
+    return {**attempt_view(attempt), "starting_fen": initial.fen(), "resumed": resumed}
+
+
 @app.post("/api/training/start")
 def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     # Also serialize against an administrative restore into a previously empty account.
     db.scalar(select(User).where(User.id == user.id).with_for_update())
     if body.puzzle_id:
+        # An explicit puzzle link is an intentional replay, as is review mode.
         puzzle = db.scalar(select(Puzzle).where(Puzzle.id == body.puzzle_id, visible_puzzles(user.id)))
         if not puzzle:
             raise HTTPException(404, "Задача не найдена в доступных базах.")
     else:
         if body.theme and body.theme not in THEMES:
             raise HTTPException(422, "Неизвестный тактический мотив.")
-        query = select(Puzzle).where(collection_filter(user.id, body.collection), Puzzle.rating.between(body.min_rating, body.max_rating))
+        matching = select(Puzzle).where(collection_filter(user.id, body.collection), Puzzle.rating.between(body.min_rating, body.max_rating))
         if body.theme:
-            query = query.where(Puzzle.themes.contains([body.theme]))
+            matching = matching.where(Puzzle.themes.contains([body.theme]))
+        query = matching
         if body.mode == "review":
             query = query.join(Review, Review.puzzle_id == Puzzle.id).where(Review.user_id == user.id, Review.due_at <= now())
             query = query.order_by(Review.due_at, func.random())
-        elif body.collection == "personal":
-            # Unseen tasks come from the most recent real game first. Once all
-            # are familiar, rotate by the last attempt instead of reopening the
-            # newest task indefinitely. The user lock above serializes starts.
-            last_attempt = (select(func.max(Attempt.id))
-                            .where(Attempt.user_id == user.id, Attempt.puzzle_id == Puzzle.id)
-                            .correlate(Puzzle).scalar_subquery())
-            undated_created = case((Puzzle.source_game_at.is_(None), Puzzle.created_at))
-            query = query.order_by(last_attempt.asc().nulls_first(),
-                                   Puzzle.source_game_at.desc().nulls_last(),
-                                   undated_created.desc().nulls_last(),
-                                   Puzzle.game_url, Puzzle.source_ply.asc().nulls_last(), Puzzle.id)
         else:
+            previous_puzzle = aliased(Puzzle)
+            finalized = (select(Attempt.id).join(previous_puzzle, Attempt.puzzle_id == previous_puzzle.id)
+                         .where(Attempt.user_id == user.id, Attempt.status.in_(["completed", "revealed"]),
+                                or_(Attempt.puzzle_id == Puzzle.id,
+                                    and_(Puzzle.collection == "personal", Puzzle.game_url != "",
+                                         Puzzle.source_ply.is_not(None), previous_puzzle.collection == "personal",
+                                         previous_puzzle.owner_id == user.id,
+                                         previous_puzzle.game_url == Puzzle.game_url,
+                                         previous_puzzle.source_ply == Puzzle.source_ply)))
+                         .correlate(Puzzle).exists())
+            # Finished personal moments never cycle through ordinary practice,
+            # including all-collection mode or a newly calculated solution ID
+            # for the same source game and ply.
+            query = query.where(or_(Puzzle.collection != "personal", ~finalized))
+            if body.exclude_attempt_id is not None:
+                current_puzzle = db.scalar(select(Attempt.puzzle_id).where(
+                    Attempt.id == body.exclude_attempt_id, Attempt.user_id == user.id,
+                    Attempt.status == "active"))
+                if current_puzzle is not None:
+                    # Only the caller's active personal task is skipped. Never
+                    # let another user's attempt ID affect visible selection.
+                    query = query.where(or_(Puzzle.collection != "personal", Puzzle.id != current_puzzle))
             seen = exists().where(Attempt.puzzle_id == Puzzle.id, Attempt.user_id == user.id)
-            # Prefer unseen puzzles. Once exhausted, allow practice with familiar material.
-            query = query.order_by(seen, func.random())
+            if body.collection == "personal":
+                undated_created = case((Puzzle.source_game_at.is_(None), Puzzle.created_at))
+                query = query.order_by(seen,
+                                       Puzzle.source_game_at.desc().nulls_last(),
+                                       undated_created.desc().nulls_last(),
+                                       Puzzle.game_url, Puzzle.source_ply.asc().nulls_last(), Puzzle.id)
+            else:
+                query = query.order_by(seen, func.random())
         puzzle = db.scalar(query.limit(1))
         if not puzzle:
+            if body.mode == "practice" and body.collection in {"personal", "all"}:
+                matching_personal = matching.where(Puzzle.collection == "personal")
+                if db.scalar(matching_personal.with_only_columns(Puzzle.id).limit(1)):
+                    unfinished = db.scalar(matching_personal.where(~finalized).with_only_columns(Puzzle.id).limit(1))
+                    if unfinished:
+                        return JSONResponse({"detail": "Новых личных задач с такими параметрами пока нет. Можно завершить текущую позицию или вернуться к незавершённым задачам на главной.",
+                                             "code": "personal_current_remaining"}, status_code=404)
+                    return JSONResponse({"detail": "Все личные задачи с такими параметрами уже пройдены. Пополнить коллекцию можно в разделе «Мои партии», а повторить пройденные — в режиме «Повторение».",
+                                         "code": "personal_collection_complete"}, status_code=404)
             raise HTTPException(404, "Нет задач с такими параметрами." if body.mode == "practice" else "Пока нет задач для повторения с такими параметрами.")
+        if body.mode == "practice" and puzzle.collection == "personal":
+            active = db.scalar(select(Attempt).where(Attempt.user_id == user.id, Attempt.puzzle_id == puzzle.id,
+                                                     Attempt.status == "active").order_by(Attempt.id.desc()).limit(1))
+            if active:
+                db.commit()
+                return started_attempt_view(active, resumed=True)
     board = chess.Board(puzzle.initial_fen)
     board.push_uci(puzzle.moves[0])
     attempt = Attempt(user_id=user.id, puzzle=puzzle, puzzle_id=puzzle.id, fen=board.fen(),
                       learner_white=board.turn, last_move=puzzle.moves[0])
     db.add(attempt)
     db.commit()
-    return attempt_view(attempt)
+    return started_attempt_view(attempt, resumed=False)
 
 
 @app.post("/api/training/{attempt_id}/move")
@@ -281,6 +323,9 @@ def export_progress(db: Session = Depends(get_db), user: User = Depends(current_
 
 
 app.include_router(imports_router)
+
+from .game_analysis_api import router as game_analysis_router
+app.include_router(game_analysis_router)
 
 
 @app.api_route("/api/{unmatched:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])

@@ -118,3 +118,23 @@ class Improvement(Base):
     data: Mapped[dict] = mapped_column(JSONB)
     puzzle_id: Mapped[str | None] = mapped_column(ForeignKey("puzzles.id", ondelete="SET NULL"), nullable=True)
     __table_args__ = (UniqueConstraint("game_id", "ply", name="uq_improvements_game_ply"),)
+
+
+class GameAnalysis(Base):
+    """One resumable complete-game review per user and real-game fingerprint."""
+    __tablename__ = "game_analyses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("imported_games.id", ondelete="CASCADE"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    analysis_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    status: Mapped[str] = mapped_column(String(16), default="ready")
+    cursor: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    moves: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    __table_args__ = (
+        UniqueConstraint("user_id", "fingerprint", name="uq_game_analyses_user_fingerprint"),
+        CheckConstraint("cursor >= 0", name="ck_game_analyses_cursor_nonnegative"),
+    )

@@ -125,3 +125,10 @@
   .header .account .avatar { display: none; }
   .header .account { margin-left: auto; }
 }
+
+.training-finished{max-width:620px;margin:50px auto;padding:32px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:18px}
+.training-finished-icon{width:76px;height:76px;border-radius:50%;background:#e7efe5;color:#365a45;display:grid;place-items:center}
+.training-finished-title{font-size:clamp(24px,4vw,32px);font-weight:700;letter-spacing:-.7px;margin:0}
+.training-finished p{line-height:1.65;margin:0}
+.training-finished-actions{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+@media(max-width:650px){.header-inner{gap:6px}.header nav button{flex:1;min-width:0;flex-direction:column;padding:8px 3px;font-size:10px;line-height:1.1;gap:5px;white-space:nowrap}.header nav button svg{width:15px;height:15px}.header .account{margin-left:0}.training-finished{margin:24px auto;padding:24px 12px}.training-finished-actions{width:100%}.training-finished-actions .button{width:100%}}

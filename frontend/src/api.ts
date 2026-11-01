@@ -7,6 +7,7 @@ export type Attempt = {
   solved_plies: number; total_plies: number; mistakes: number; hints_used: number;
   last_move: string | null; elapsed_ms: number | null;
   collection: string; rating_estimated: boolean;
+  starting_fen?: string; resumed?: boolean;
 };
 export type Stats = {
   solved: number; total_attempts: number; accuracy: number; streak: number; due_count: number;
@@ -43,7 +44,7 @@ export type ImportJob = ImportJobSummary & { games: ImportedGame[] };
 export type CreatedPuzzle = { puzzle_id: string; collection: 'public' | 'personal'; created: boolean };
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) { super(message); }
+  constructor(message: string, public status: number, public code?: string) { super(message); }
 }
 
 export async function api<T>(path: string, body?: unknown, method?: string, options: { keepalive?: boolean } = {}): Promise<T> {
@@ -57,10 +58,41 @@ export async function api<T>(path: string, body?: unknown, method?: string, opti
   } catch { throw new ApiError('Не удалось связаться с сервером. Проверьте подключение и попробуйте ещё раз.', 0); }
   if (!response.ok) {
     let message = response.status === 401 ? 'Войдите в аккаунт, чтобы продолжить.' : `Ошибка сервера (${response.status}). Попробуйте ещё раз.`;
-    try { const data = await response.json(); if (typeof data.detail === 'string') message = data.detail; } catch { /* Keep readable fallback. */ }
+    let code: string | undefined;
+    try { const data = await response.json(); if (typeof data.detail === 'string') message = data.detail; if (typeof data.code === 'string') code = data.code; } catch { /* Keep readable fallback. */ }
     if (response.status === 401 && path !== '/auth/login') window.dispatchEvent(new Event('session-expired'));
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, code);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+
+export type GameMoveCategory = 'brilliant' | 'great' | 'best' | 'excellent' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' | 'forced' | 'unassessed';
+export type GameAnalysisSource = {
+  id: number; white: string; black: string; result: string; date: string;
+  game_url: string; source_game_at: string | null; username: string | null; total_plies: number;
+  analysis_id: number | null; analysis_status: 'ready' | 'running' | 'completed' | 'failed' | null;
+  analysis_outdated: boolean;
+};
+export type AnalysedGameMove = {
+  ply: number; move_number: number; side: 'white' | 'black'; before_fen: string; after_fen: string;
+  played_uci: string; played_san: string; best_uci: string | null; best_san: string | null;
+  category: GameMoveCategory; accuracy: number | null; expected_loss: number | null;
+  best_expected: number | null; played_expected: number | null;
+  score_before: number | null; score_after: number | null; mate_before: number | null; mate_after: number | null;
+  best_line_uci: string[]; best_line_san: string[]; depth: number; assessed: boolean; reason: string;
+  brilliant_evidence: Record<string, unknown> | null;
+};
+export type GameSideSummary = {
+  accuracy: number | null; provisional_accuracy: number | null; counts: Record<GameMoveCategory, number>;
+  total_moves: number; analysed_moves: number; assessed_moves: number; accuracy_moves: number;
+  coverage: number; complete: boolean; accuracy_complete: boolean;
+};
+export type GameAnalysisReport = {
+  id: number; game_id: number; game: GameAnalysisSource & { initial_fen: string };
+  status: 'ready' | 'running' | 'completed' | 'failed'; cursor: number; total_plies: number;
+  analysis_version: number; analysis_outdated: boolean; error: string | null; created_at: string; updated_at: string;
+  summary: { white: GameSideSummary; black: GameSideSummary; complete: boolean };
+  moves: AnalysedGameMove[]; method?: Record<string, unknown>; category_names?: Record<string, string>;
+};
