@@ -62,3 +62,38 @@
   .board-replay { padding: 12px; }
   .board-replay .label-small { font-size: 9px; letter-spacing: .8px; }
 }
+
+/* The solving screen is separate from the home page and its navigation. */
+.session-shell .main-content {
+  max-width: none;
+  min-height: 100svh;
+  padding: 14px 16px 24px;
+}
+.training-session .board-column {
+  width: min(100%, max(340px, calc(100svh - 285px)));
+  max-width: 640px;
+  margin: 0 auto;
+}
+.session-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  min-height: 42px;
+}
+.session-toolbar .text-button { min-height: 42px; padding: 8px 0; font-size: 12px; gap: 7px; }
+.session-toolbar > span { font-size: 11px; color: var(--muted); }
+.training-session .board-topline { height: auto; min-height: 24px; margin-bottom: 8px; }
+.training-session .play-status { min-height: 72px; padding: 10px 13px; }
+.training-session .play-status-icon { width: 34px; height: 34px; }
+.training-session .play-status strong { font-size: 13px; }
+.training-session .board-actions { margin-top: 10px; }
+.training-session .replay-toolbar { justify-content: flex-end; }
+.session-details { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 11px; background: #fff; }
+.session-details > :first-child { margin-top: 0; }
+@media (max-width: 650px) {
+  .session-shell .main-content { padding: 8px 12px 20px; }
+  .training-session .board-column { width: 100%; }
+  .session-toolbar { margin-bottom: 4px; }
+}

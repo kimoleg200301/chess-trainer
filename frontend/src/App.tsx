@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, Settings2, ShieldCheck, Sparkles, Target, TrendingUp, X, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import ChessBoard from './ChessBoard';
+import TrainingSetup from './TrainingSetup';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
 import type { Analysis, Attempt, Meta, Reveal, Stats } from './api';
@@ -77,7 +78,7 @@ function StatsPage({ stats, busy, refresh }: { stats: Stats | null; busy: boolea
   </section>;
 }
 
-function Trainer({ meta, stats, onChanged, visible }: { meta: Meta | null; stats: Stats | null; onChanged: () => void; visible: boolean }) {
+function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { meta: Meta | null; stats: Stats | null; onChanged: () => void; visible: boolean; screen: 'setup' | 'session'; onScreenChange: (screen: 'setup' | 'session') => void }) {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [theme, setTheme] = useState('');
   const [minRating, setMinRating] = useState(800);
@@ -101,15 +102,21 @@ function Trainer({ meta, stats, onChanged, visible }: { meta: Meta | null; stats
   const [feedbackVersion, setFeedbackVersion] = useState(0);
   const actionPending = useRef(false);
   const mounted = useRef(true);
-  const boardColumn = useRef<HTMLDivElement>(null);
+  const sessionBack = useRef<HTMLButtonElement>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  useEffect(() => { if (!visible) setReplayPlaying(false); }, [visible]);
+  useEffect(() => { if (!visible || screen !== 'session') setReplayPlaying(false); }, [visible, screen]);
   useEffect(() => {
-    if (!replayPlaying || !reveal || !visible) return;
+    if (visible && screen === 'session') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      sessionBack.current?.focus({ preventScroll: true });
+    }
+  }, [visible, screen]);
+  useEffect(() => {
+    if (!replayPlaying || !reveal || !visible || screen !== 'session') return;
     if (replayIndex >= reveal.solution.length) { setReplayPlaying(false); return; }
     const timer = window.setTimeout(() => setReplayIndex(index => index + 1), 950);
     return () => window.clearTimeout(timer);
-  }, [replayPlaying, replayIndex, reveal, visible]);
+  }, [replayPlaying, replayIndex, reveal, visible, screen]);
   function seekReplay(index: number) { setReplayPlaying(false); setReplayIndex(index); }
   function toggleReplay() {
     if (reveal && replayIndex >= reveal.solution.length) setReplayIndex(0);
@@ -126,7 +133,7 @@ function Trainer({ meta, stats, onChanged, visible }: { meta: Meta | null; stats
     return { ...attempt, fen: board.fen(), last_move: replayIndex ? reveal.solution[replayIndex - 1].uci : null };
   }, [attempt, reveal, initialFen, replayIndex, playback]);
 
-  async function start() {
+  async function start(newSession = false) {
     if (actionPending.current || analysisBusy) return;
     if (minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
     actionPending.current = true;
@@ -135,7 +142,9 @@ function Trainer({ meta, stats, onChanged, visible }: { meta: Meta | null; stats
       const data = await api<Attempt>('/training/start', { theme: theme || null, min_rating: minRating, max_rating: maxRating, mode });
       if (!mounted.current) return;
       setAttempt(data); setInitialFen(data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null);
-      if (window.matchMedia('(max-width: 650px)').matches) boardColumn.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+      if (newSession) setSessionSolved(0);
+      onScreenChange('session');
+      window.scrollTo({ top: 0, behavior: 'instant' });
     } catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
@@ -199,9 +208,20 @@ function Trainer({ meta, stats, onChanged, visible }: { meta: Meta | null; stats
     : attempt?.status === 'completed' ? attempt.mistakes === 0 && attempt.hints_used === 0 ? 'Чистое решение — без ошибок и подсказок.' : 'Комбинация найдена. Повторение поможет закрепить идею.'
     : feedback || `Играйте за ${attempt?.turn === 'black' ? 'чёрных' : 'белых'}. Выберите фигуру и поле назначения.`;
   const statusKind = phase !== 'idle' && !done ? 'thinking' : attempt?.status === 'completed' ? 'success' : feedbackKind;
-  return <section>
-    <div className="page-heading"><div><span className="eyebrow">ТРЕНИРУЙТЕ ШАХМАТНОЕ ЗРЕНИЕ</span><h1>У каждой позиции есть идея.</h1><p>Заметьте мотив. Рассчитайте продолжение. Сделайте свой ход.</p></div><div className="session-summary"><span className="session-icon"><Zap size={19} /></span><div><strong>{sessionSolved} решено</strong><small>в этой тренировке</small></div></div></div>
-    <div className="training-layout"><div ref={boardColumn} className={`board-column ${attempt?.status === 'completed' ? 'board-solved' : ''}`}>
+  function openSetup() {
+    setReplayPlaying(false); setShowSkip(false); setError(''); onScreenChange('setup');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+  if (screen === 'setup' || !attempt) return <TrainingSetup
+    meta={meta} stats={stats} theme={theme} onThemeChange={setTheme}
+    minRating={minRating} maxRating={maxRating} onMinRatingChange={setMinRating} onMaxRatingChange={setMaxRating}
+    mode={mode} onModeChange={setMode} busy={busy || analysisBusy} error={error} onDismissError={() => setError('')}
+    onStart={() => void start(true)} sessionSolved={sessionSolved}
+    onResume={attempt ? () => { setError(''); onScreenChange('session'); } : undefined}
+  />;
+  return <section className="training-session" aria-label="Решение позиции">
+    <div className={`board-column ${attempt.status === 'completed' ? 'board-solved' : ''}`}>
+      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><span>{sessionSolved} решено</span></div>
       <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${attempt.puzzle_id} · ${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
         <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>
@@ -219,39 +239,19 @@ function Trainer({ meta, stats, onChanged, visible }: { meta: Meta | null; stats
         <button className="button secondary" disabled={busy} onClick={revealSolution}><CircleHelp size={17} /> Решение</button>
       </div>}
       {reveal && <div className="board-replay">
-        <div className="replay-toolbar"><span className="label-small">РАЗБОР НА ДОСКЕ</span><button className="button secondary replay-play" disabled={busy} onClick={toggleReplay}>{replayPlaying ? <Pause size={16} /> : <Play size={16} />}{replayPlaying ? 'Пауза' : 'Воспроизвести'}</button></div>
+        <div className="replay-toolbar"><button className="button secondary replay-play" disabled={busy} onClick={toggleReplay}>{replayPlaying ? <Pause size={16} /> : <Play size={16} />}{replayPlaying ? 'Пауза' : 'Воспроизвести'}</button></div>
         <div className="solution-moves">{reveal.solution.map((item, index) => <button key={`${index}-${item.uci}`} aria-label={`Показать позицию после ${item.san}`} aria-pressed={replayIndex === index + 1} onClick={() => seekReplay(index + 1)} className={`${index % 2 === 0 ? 'learner-move' : ''} ${replayIndex === index + 1 ? 'current-move' : ''}`}>{item.san}</button>)}</div>
         <div className="replay-controls"><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(0)}>В начало</button><div><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(replayIndex - 1)}>← Назад</button><button className="text-button" disabled={replayIndex === reveal.solution.length} onClick={() => seekReplay(replayIndex + 1)}>Далее →</button></div></div>
       </div>}
       {attempt && error && <ErrorNotice message={error} close={() => setError('')} />}
-      <div className="board-bottomline"><span><span className="connection-dot" />{reveal ? 'Выбирайте ходы варианта для просмотра на доске' : attempt && !done ? 'Нажмите на фигуру и поле назначения' : done ? 'Возьмите идею с собой в следующую партию' : 'Реальные позиции · спокойная практика'}</span></div>
-      <div className="learning-note"><Lightbulb size={20} /><p><strong>Сначала идея, потом ход.</strong> Перед ответом проверьте шахи, взятия и угрозы. Постарайтесь увидеть лучший ответ соперника.</p></div>
+      {done && <div className="session-details">
+        {(attempt.mistakes > 0 || attempt.hints_used > 0) && <p className="attempt-meta">Ошибок: {attempt.mistakes} · Подсказок: {attempt.hints_used}</p>}
+        <div className="theme-tags">{attempt.themes.filter(id => !['short', 'long', 'veryLong', 'oneMove'].includes(id) && label(id) !== id).slice(0, 5).map(id => <span key={id}>{label(id)}</span>)}</div>
+        {reveal && /^https:\/\/lichess\.org\//.test(reveal.game_url) && <a className="source-link" href={reveal.game_url} target="_blank" rel="noreferrer">Посмотреть исходную партию <ChevronRight size={14} /></a>}
+        {attempt.status === 'completed' && !analysis && <button className="analysis-button" disabled={busy || analysisBusy} onClick={getAnalysis}>{analysisBusy ? <Spinner /> : <Sparkles size={15} />}{analysisBusy ? 'Анализируем позицию…' : 'Проверить итоговую позицию'}</button>}
+        {analysis && <div className="analysis-result"><div><span>{analysis.engine}</span><strong>{analysis.evaluation}</strong></div><p>{analysis.line.length ? analysis.line.join('  ') : 'Продолжение не требуется.'}</p></div>}
+      </div>}
     </div>
-    <aside className="training-sidebar">
-      <section className="panel settings-panel"><div className="panel-title"><h2>Ваша тренировка</h2><Settings2 size={18} /></div>
-        <div className="segmented" aria-label="Режим тренировки"><button aria-pressed={mode === 'practice'} className={mode === 'practice' ? 'active' : ''} onClick={() => setMode('practice')}><Target size={15} />Практика</button><button aria-pressed={mode === 'review'} className={mode === 'review' ? 'active' : ''} onClick={() => setMode('review')}><RotateCcw size={15} />Повторение{(stats?.due_count || 0) > 0 && <span className="count-badge">{stats?.due_count}</span>}</button></div>
-        <label className="field-label" htmlFor="theme">Тактический мотив</label><select id="theme" value={theme} onChange={event => setTheme(event.target.value)} disabled={!meta}><option value="">Смешанные задачи</option>{meta?.themes.map(item => <option key={item.id} value={item.id}>{item.name} ({item.count})</option>)}</select>
-        <div className="difficulty-label"><label className="field-label" htmlFor="rating-min">Рейтинг задач</label><span>{minRating}–{maxRating}</span></div>
-        <div className="rating-fields"><label><span>От</span><input id="rating-min" type="number" min="0" max="4000" step="100" value={minRating} onChange={event => setMinRating(Number(event.target.value))} /></label><span className="rating-dash">—</span><label><span>До</span><input aria-label="Верхняя граница рейтинга" type="number" min="0" max="4000" step="100" value={maxRating} onChange={event => setMaxRating(Number(event.target.value))} /></label></div>
-        <div className="difficulty-presets">{[{ label: 'Разминка', min: 600, max: 1200 }, { label: 'Практика', min: 1200, max: 1800 }, { label: 'Вызов', min: 1800, max: 2400 }].map(preset => <button key={preset.label} className={minRating === preset.min && maxRating === preset.max ? 'selected-preset' : ''} onClick={() => { setMinRating(preset.min); setMaxRating(preset.max); }}>{preset.label}</button>)}</div>
-        {!attempt && error && <ErrorNotice message={error} close={() => setError('')} />}
-        {!attempt && <button className="button primary start-button" disabled={busy || analysisBusy || !meta} onClick={() => void start()}>{busy ? <Spinner /> : <><span>Начать тренировку</span><ArrowRight size={17} /></>}</button>}
-        <p className="settings-footnote">{mode === 'review' ? 'Позиции, которые пора повторить. Фильтры также применяются.' : meta ? `${fmt.format(meta.total_puzzles)} позиций в библиотеке. Параметры применяются к следующей задаче.` : 'Загружаем библиотеку задач…'}</p>
-      </section>
-      <section className={`panel position-panel ${attempt?.status === 'completed' ? 'completed-panel' : ''}`}>
-        {!attempt ? <Empty icon={<Target size={25} />} title="Точность важнее скорости">Выберите мотив или смешанные задачи. Начните с удобного уровня сложности.</Empty> : <>
-          <div className="panel-title"><h2>{attempt.status === 'completed' ? 'Идея найдена!' : attempt.status === 'revealed' ? 'Разбор позиции' : 'Найдите продолжение'}</h2>{attempt.status === 'completed' ? <CheckCircle2 size={21} /> : <Target size={19} />}</div>
-          <p className="position-description">{attempt.status === 'completed' ? attempt.mistakes === 0 && attempt.hints_used === 0 ? 'Чистое решение. Ещё один знакомый мотив в вашей коллекции.' : 'Вы нашли продолжение. Повторение поможет закрепить эту идею.' : attempt.status === 'revealed' ? 'Проследите за каждым ответом соперника.' : `Ваш ход за ${attempt.turn === 'white' ? 'белых' : 'чёрных'}. Рассчитайте вариант до понятного результата.`}</p>
-          <div className="move-progress" aria-label="Прогресс решения">{Array.from({ length: Math.max(1, Math.ceil(attempt.total_plies / 2)) }, (_, index) => <span key={index} className={index < Math.ceil(attempt.solved_plies / 2) ? 'filled' : ''} />)}</div>
-          {(attempt.mistakes > 0 || attempt.hints_used > 0) && <p className="attempt-meta">Ошибок: {attempt.mistakes} · Подсказок: {attempt.hints_used}</p>}
-          {done && <div className="theme-tags">{attempt.themes.filter(id => !['short', 'long', 'veryLong', 'oneMove'].includes(id) && label(id) !== id).slice(0, 5).map(id => <span key={id}>{label(id)}</span>)}</div>}
-          {reveal && /^https:\/\/lichess\.org\//.test(reveal.game_url) && <a className="source-link" href={reveal.game_url} target="_blank" rel="noreferrer">Посмотреть исходную партию <ChevronRight size={14} /></a>}
-          {attempt.status === 'completed' && !analysis && <button className="analysis-button" disabled={busy || analysisBusy} onClick={getAnalysis}>{analysisBusy ? <Spinner /> : <Sparkles size={15} />}{analysisBusy ? 'Анализируем позицию…' : 'Проверить итоговую позицию'}</button>}
-          {analysis && <div className="analysis-result"><div><span>{analysis.engine}</span><strong>{analysis.evaluation}</strong></div><p>{analysis.line.length ? analysis.line.join('  ') : 'Продолжение не требуется.'}</p></div>}
-        </>}
-      </section>
-      <div className="sidebar-bottom"><GraduationCap size={18} /><p>Повторяйте мотивы, чтобы узнавать их<br />в собственных партиях.</p></div>
-    </aside></div>
   </section>;
 }
 
@@ -259,6 +259,8 @@ export default function App() {
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'training' | 'stats'>('training');
+  const [trainingScreen, setTrainingScreen] = useState<'setup' | 'session'>('setup');
+  const inSession = tab === 'training' && trainingScreen === 'session';
   const [meta, setMeta] = useState<Meta | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState('');
@@ -270,16 +272,16 @@ export default function App() {
   useEffect(() => {
     let active = true;
     api<{ username: string }>('/auth/me').then(data => { if (active) setUser(data.username); }).catch(err => { if (active && !(err instanceof ApiError && err.status === 401)) setError(errorText(err)); }).finally(() => { if (active) setLoading(false); });
-    const expired = () => { setUser(null); setMeta(null); setStats(null); };
+    const expired = () => { setUser(null); setMeta(null); setStats(null); setTrainingScreen('setup'); };
     window.addEventListener('session-expired', expired);
     return () => { active = false; window.removeEventListener('session-expired', expired); };
   }, []);
   useEffect(() => { if (user) { void refreshCatalog(); void refreshStats(); } }, [user, refreshStats, refreshCatalog]);
-  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); setUser(null); setMeta(null); setStats(null); setError(''); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
+  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); setUser(null); setMeta(null); setStats(null); setError(''); setTrainingScreen('setup'); setTab('training'); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
   if (loading) return <div className="app-loading"><Brand subtitle /><Spinner /><p>Готовим доску…</p></div>;
-  if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); }} />;
-  return <div className="app-shell"><header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — тренировка"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Тренировка</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button></nav><div className="account"><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>
-    <main className="main-content">{error && <ErrorNotice message={error} close={() => setError('')} />}{!meta && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}><Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}</main>
-    <footer className="footer"><span>тактика<span className="brand-dot">.</span> <span className="footer-separator">/</span> Практика, которая остаётся с вами.</span><span><a href="https://database.lichess.org/#puzzles" target="_blank" rel="noreferrer">Позиции Lichess · CC0</a><span className="footer-separator">·</span><a href="/pieces/NOTICE.txt" target="_blank" rel="noreferrer">Фигуры</a></span></footer>
+  if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); setTrainingScreen('setup'); setTab('training'); }} />;
+  return <div className={`app-shell ${inSession ? 'session-shell' : ''}`}>{!inSession && <header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — главная"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Главная</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button></nav><div className="account"><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>}
+    <main className="main-content">{error && <ErrorNotice message={error} close={() => setError('')} />}{!meta && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}><Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} screen={trainingScreen} onScreenChange={setTrainingScreen} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}</main>
+    {!inSession && <footer className="footer"><span>тактика<span className="brand-dot">.</span> <span className="footer-separator">/</span> Практика, которая остаётся с вами.</span><span><a href="https://database.lichess.org/#puzzles" target="_blank" rel="noreferrer">Позиции Lichess · CC0</a><span className="footer-separator">·</span><a href="/pieces/NOTICE.txt" target="_blank" rel="noreferrer">Фигуры</a></span></footer>}
   </div>;
 }
