@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Chess } from 'chess.js';
-import type { Square } from 'chess.js';
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, FlipVertical2, Gauge, LoaderCircle, Pause, Play, RefreshCw, Search, X } from 'lucide-react';
 import { api } from './api';
+import AnalysisBoard from './AnalysisBoard';
 import type { GameAnalysisReport, GameAnalysisSource, GameMoveCategory, GameSideSummary, ImportJob } from './api';
 import './game-analysis.css';
 
@@ -27,23 +27,6 @@ function scoreLabel(score: number | null, mate: number | null) {
 }
 function Spinner() { return <LoaderCircle size={17} className="spinner" aria-hidden="true" />; }
 
-function PositionBoard({ fen, side, lastMove }: { fen: string; side: 'white' | 'black'; lastMove: string | null }) {
-  const board = useMemo(() => new Chess(fen), [fen]);
-  const files = side === 'black' ? 'hgfedcba' : 'abcdefgh', ranks = side === 'black' ? '12345678' : '87654321';
-  const names: Record<string, string> = { p: 'пешка', n: 'конь', b: 'слон', r: 'ладья', q: 'ферзь', k: 'король' };
-  return <div className="analysis-position-board" role="img" aria-label={`Позиция партии. Доска со стороны ${side === 'white' ? 'белых' : 'чёрных'}.`}>
-    {[...ranks].flatMap((rank, row) => [...files].map((file, col) => {
-      const square = `${file}${rank}` as Square, piece = board.get(square);
-      const last = !!lastMove && [lastMove.slice(0, 2), lastMove.slice(2, 4)].includes(square);
-      const check = piece?.type === 'k' && piece.color === board.turn() && board.isCheck();
-      return <div key={square} className={`analysis-square ${(row + col) % 2 ? 'dark' : 'light'} ${last ? 'last-move' : ''} ${check ? 'in-check' : ''}`} title={`${square}${piece ? `: ${piece.color === 'w' ? 'белые' : 'чёрные'} ${names[piece.type]}` : ': пустое поле'}`}>
-        {col === 0 && <span className="analysis-rank" aria-hidden="true">{rank}</span>}{row === 7 && <span className="analysis-file" aria-hidden="true">{file}</span>}
-        {piece && <img src={`/pieces/${piece.color}${piece.type.toUpperCase()}.svg`} alt="" draggable={false} />}
-      </div>;
-    }))}
-  </div>;
-}
-
 function AccuracyCard({ side, name, result, completed }: { side: 'white' | 'black'; name: string; result: GameSideSummary; completed: boolean }) {
   return <div className={`analysis-accuracy-card ${side}`}>
     <div className="analysis-player"><span className={`analysis-side-dot ${side}`} /><div><strong>{name}</strong><span>{side === 'white' ? 'Белые' : 'Чёрные'}</span></div></div>
@@ -54,34 +37,54 @@ function AccuracyCard({ side, name, result, completed }: { side: 'white' | 'blac
   </div>;
 }
 
-function MoveInspector({ report, selectedPly, onSelect }: { report: GameAnalysisReport; selectedPly: number | null; onSelect: (ply: number) => void }) {
-  const [orientation, setOrientation] = useState<'white' | 'black'>('white');
-  const [mode, setMode] = useState<'before' | 'played' | 'line'>('before');
-  const [lineIndex, setLineIndex] = useState(1);
+function MoveInspector({ report, selectedPly, onSelect, visible }: { report: GameAnalysisReport; selectedPly: number | null; onSelect: (ply: number) => void; visible: boolean }) {
+  const [flipped, setFlipped] = useState<{ id: number; side: 'white' | 'black' } | null>(null);
+  const [view, setView] = useState<{ key: string; mode: 'before' | 'played' | 'line'; lineIndex: number }>({ key: '', mode: 'played', lineIndex: 1 });
+  const moveList = useRef<HTMLDivElement>(null);
   const moves = report.moves, index = moves.findIndex(item => item.ply === selectedPly), selectedIndex = Math.max(0, index);
   const move = index >= 0 ? moves[index] : moves[0];
-  useEffect(() => { setMode('before'); setLineIndex(1); }, [move?.ply, report.id]);
-  useEffect(() => { setOrientation(report.game.username?.toLowerCase() === report.game.black.toLowerCase() ? 'black' : 'white'); }, [report.id, report.game.username, report.game.black]);
+  const selectionKey = `${report.id}:${move?.ply ?? 'initial'}`;
+  // A newly selected move renders its own resulting position immediately,
+  // without briefly borrowing the previous selection's variation or mode.
+  const mode = view.key === selectionKey ? view.mode : 'played';
+  const lineIndex = view.key === selectionKey ? view.lineIndex : 1;
+  const orientation = flipped?.id === report.id ? flipped.side : report.game.username?.toLowerCase() === report.game.black.toLowerCase() ? 'black' : 'white';
+  const setMode = (next: 'before' | 'played' | 'line') => setView({ key: selectionKey, mode: next, lineIndex: 1 });
+  const setLineIndex = (next: number) => setView({ key: selectionKey, mode: 'line', lineIndex: Math.max(0, Math.min(move?.best_line_uci.length || 0, next)) });
+  function selectMove(ply: number) {
+    setView({ key: `${report.id}:${ply}`, mode: 'played', lineIndex: 1 });
+    onSelect(ply);
+  }
+  useLayoutEffect(() => {
+    const list = moveList.current, current = list?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!visible || !list || !current) return;
+    const container = list.getBoundingClientRect(), row = current.getBoundingClientRect();
+    // Follow the selected move inside the list without scrolling the page or
+    // moving the board out of view on a phone.
+    if (row.top < container.top) list.scrollTop += row.top - container.top;
+    else if (row.bottom > container.bottom) list.scrollTop += row.bottom - container.bottom;
+  }, [selectionKey, visible]);
   const display = useMemo(() => {
     if (!move) return { fen: report.game.initial_fen, lastMove: null, label: 'Начальная позиция' };
-    if (mode === 'played') return { fen: move.after_fen, lastMove: move.played_uci, label: 'После сыгранного хода' };
+    const moveLabel = `${move.move_number}${move.side === 'black' ? '…' : '.'} ${move.played_san}`;
+    if (mode === 'played') return { fen: move.after_fen, lastMove: move.played_uci, label: `После ${moveLabel}` };
     if (mode === 'line') {
       const board = new Chess(move.before_fen); let lastMove: string | null = null;
       for (const uci of move.best_line_uci.slice(0, lineIndex)) { try { board.move(uci); lastMove = uci; } catch { break; } }
       return { fen: board.fen(), lastMove, label: 'Продолжение движка' };
     }
-    return { fen: move.before_fen, lastMove: null, label: 'Перед выбранным ходом' };
+    return { fen: move.before_fen, lastMove: null, label: `Перед ${moveLabel}` };
   }, [move, mode, lineIndex, report.game.initial_fen]);
   const selected = move ? categoryInfo(move.category) : null;
   return <section className="analysis-inspector panel" aria-label="Просмотр ходов партии">
-    <div className="analysis-board-column"><div className="analysis-board-heading"><span>{display.label}</span><button className="icon-button" aria-label="Перевернуть доску" onClick={() => setOrientation(value => value === 'white' ? 'black' : 'white')}><FlipVertical2 size={17} /></button></div>
-      <PositionBoard fen={display.fen} side={orientation} lastMove={display.lastMove} />
-      <div className="analysis-position-tabs" role="group" aria-label="Позиция на доске"><button disabled={!move} aria-pressed={mode === 'before'} onClick={() => setMode('before')}>До хода</button><button disabled={!move} aria-pressed={mode === 'played'} onClick={() => setMode('played')}>Сыграно</button><button disabled={!move?.best_line_uci.length} aria-pressed={mode === 'line'} onClick={() => { setMode('line'); setLineIndex(1); }}>Лучший вариант</button></div>
-      {move && mode === 'line' && <div className="analysis-variation"><button className="icon-button" aria-label="Назад по варианту" disabled={lineIndex <= 0} onClick={() => setLineIndex(value => value - 1)}><ChevronLeft size={16} /></button><div>{move.best_line_san.map((san, position) => <button key={position} className={position + 1 === lineIndex ? 'active' : ''} aria-pressed={position + 1 === lineIndex} onClick={() => setLineIndex(position + 1)}>{san}</button>)}</div><button className="icon-button" aria-label="Далее по варианту" disabled={lineIndex >= move.best_line_uci.length} onClick={() => setLineIndex(value => value + 1)}><ChevronRight size={16} /></button></div>}
+    <div className="analysis-board-column"><div className="analysis-board-heading"><span>{display.label}</span><button className="icon-button" aria-label="Перевернуть доску" onClick={() => setFlipped({ id: report.id, side: orientation === 'white' ? 'black' : 'white' })}><FlipVertical2 size={17} /></button></div>
+      <AnalysisBoard fen={display.fen} side={orientation} lastMove={display.lastMove} identity={report.id} visible={visible} />
+      <div className="analysis-position-tabs" role="group" aria-label="Позиция на доске"><button disabled={!move} aria-pressed={mode === 'before'} onClick={() => setMode('before')}>До хода</button><button disabled={!move} aria-pressed={mode === 'played'} onClick={() => setMode('played')}>Сыграно</button><button disabled={!move?.best_line_uci.length} aria-pressed={mode === 'line'} onClick={() => setMode('line')}>Лучший вариант</button></div>
+      {move && mode === 'line' && <div className="analysis-variation"><button className="icon-button" aria-label="Назад по варианту" disabled={lineIndex <= 0} onClick={() => setLineIndex(lineIndex - 1)}><ChevronLeft size={16} /></button><div>{move.best_line_san.map((san, position) => <button key={position} className={position + 1 === lineIndex ? 'active' : ''} aria-pressed={position + 1 === lineIndex} onClick={() => setLineIndex(position + 1)}>{san}</button>)}</div><button className="icon-button" aria-label="Далее по варианту" disabled={lineIndex >= move.best_line_uci.length} onClick={() => setLineIndex(lineIndex + 1)}><ChevronRight size={16} /></button></div>}
     </div>
     <div className="analysis-moves-column"><div className="analysis-selected-move">{move && selected ? <><div><strong>{move.move_number}{move.side === 'black' ? '…' : '.'} {move.played_san}</strong><span className={`analysis-category ${move.category}`}><b>{selected.symbol}</b> {selected.name}</span></div><p>{move.reason}</p><div className="analysis-move-evaluations"><span>Сыграно <strong>{scoreLabel(move.score_after, move.mate_after)}</strong></span><span>Лучшее <strong>{move.best_san || '—'} · {scoreLabel(move.score_before, move.mate_before)}</strong></span></div><small>Оценка со стороны {move.side === 'white' ? 'белых' : 'чёрных'}.{move.accuracy != null && <> Точность хода: {move.accuracy.toFixed(1)}%.</>}</small></> : <><h3>Ходы появятся после начала анализа</h3><p>Выберите рассчитанный ход, чтобы посмотреть позицию и продолжение движка.</p></>}</div>
-      <div className="analysis-move-navigation"><button className="button secondary" disabled={!moves.length || selectedIndex === 0} onClick={() => onSelect(moves[selectedIndex - 1].ply)}><ArrowLeft size={15} /> Назад</button><span>{moves.length ? `${selectedIndex + 1} / ${moves.length}` : 'Нет рассчитанных ходов'}</span><button className="button secondary" disabled={!moves.length || selectedIndex >= moves.length - 1} onClick={() => onSelect(moves[selectedIndex + 1].ply)}>Далее <ArrowRight size={15} /></button></div>
-      <div className="analysis-move-list" aria-label="Рассчитанные ходы">{moves.map(item => { const info = categoryInfo(item.category); return <button key={item.ply} className={`${item.category} ${move?.ply === item.ply ? 'selected' : ''}`} aria-pressed={move?.ply === item.ply} aria-label={`Ход ${item.move_number} ${item.side === 'white' ? 'белых' : 'чёрных'}: ${item.played_san}, ${info.name}`} onClick={() => onSelect(item.ply)}><span className="analysis-move-number">{item.move_number}{item.side === 'black' ? '…' : '.'}</span><strong>{item.played_san}</strong><span className={`analysis-category-symbol ${item.category}`} title={info.name}>{info.symbol}</span></button>; })}</div>
+      <div className="analysis-move-navigation"><button className="button secondary" disabled={!moves.length || selectedIndex === 0} onClick={() => selectMove(moves[selectedIndex - 1].ply)}><ArrowLeft size={15} /> Назад</button><span>{moves.length ? `${selectedIndex + 1} / ${moves.length}` : 'Нет рассчитанных ходов'}</span><button className="button secondary" disabled={!moves.length || selectedIndex >= moves.length - 1} onClick={() => selectMove(moves[selectedIndex + 1].ply)}>Далее <ArrowRight size={15} /></button></div>
+      <div ref={moveList} className="analysis-move-list" aria-label="Рассчитанные ходы">{moves.map(item => { const info = categoryInfo(item.category); return <button key={item.ply} data-ply={item.ply} data-side={item.side} className={`${item.category} ${move?.ply === item.ply ? 'selected' : ''}`} aria-pressed={move?.ply === item.ply} aria-label={`Ход ${item.move_number} ${item.side === 'white' ? 'белых' : 'чёрных'}: ${item.played_san}, ${info.name}`} onClick={() => selectMove(item.ply)}><span className="analysis-move-number">{item.move_number}{item.side === 'black' ? '…' : '.'}</span><strong>{item.played_san}</strong><span className={`analysis-category-symbol ${item.category}`} title={info.name}>{info.symbol}</span></button>; })}</div>
     </div>
   </section>;
 }
@@ -190,7 +193,7 @@ export default function GameAnalysis({ visible, onDataChanged }: { visible: bool
           </section>
           {report && <><div className="analysis-accuracy-cards"><AccuracyCard side="white" name={currentGame.white} result={report.summary.white} completed={completed} /><AccuracyCard side="black" name={currentGame.black} result={report.summary.black} completed={completed} /></div>
             <section className="panel analysis-categories"><div className="panel-title"><h2>Качество ходов</h2><span>{completed ? 'Итог партии' : 'По проверенным ходам'}</span></div><div className="analysis-counts-heading"><span>Категория</span><span>Белые</span><span>Чёрные</span></div>{categories.map(item => <div className="analysis-counts-row" key={item.id}><span><b className={`analysis-category-symbol ${item.id}`}>{item.symbol}</b>{item.name}</span><strong>{report.summary.white.counts[item.id] || 0}</strong><strong>{report.summary.black.counts[item.id] || 0}</strong></div>)}<p>Вынужденные ходы и ходы без надёжной оценки не входят в расчёт точности.</p></section>
-            <MoveInspector report={report} selectedPly={selectedPly} onSelect={setSelectedPly} />
+            <MoveInspector report={report} selectedPly={selectedPly} onSelect={setSelectedPly} visible={visible} />
           </>}
         </>}
       </div>
