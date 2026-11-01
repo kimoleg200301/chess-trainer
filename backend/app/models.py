@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -38,7 +38,14 @@ class Puzzle(Base):
     themes: Mapped[list[str]] = mapped_column(ARRAY(String(64)))
     game_url: Mapped[str] = mapped_column(Text)
     opening_tags: Mapped[str] = mapped_column(Text, default="")
-    __table_args__ = (Index("ix_puzzles_themes", "themes", postgresql_using="gin"),)
+    collection: Mapped[str] = mapped_column(String(16), default="lichess", server_default="lichess", index=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    rating_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    __table_args__ = (
+        Index("ix_puzzles_themes", "themes", postgresql_using="gin"),
+        CheckConstraint("(collection = 'personal' AND owner_id IS NOT NULL) OR "
+                        "(collection IN ('lichess', 'public') AND owner_id IS NULL)", name="ck_puzzles_collection_owner"),
+    )
 
 
 class Attempt(Base):
@@ -69,3 +76,40 @@ class Review(Base):
     successes: Mapped[int] = mapped_column(Integer, default=0)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     __table_args__ = (UniqueConstraint("user_id", "puzzle_id", name="uq_reviews_user_puzzle"),)
+
+
+class ImportJob(Base):
+    __tablename__ = "import_jobs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(16))
+    username: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    month: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    identity_key: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default="ready")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    __table_args__ = (UniqueConstraint("user_id", "identity_key", name="uq_import_jobs_user_identity"),)
+
+
+class ImportedGame(Base):
+    __tablename__ = "imported_games"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id", ondelete="CASCADE"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    data: Mapped[dict] = mapped_column(JSONB)
+    cursor: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    __table_args__ = (UniqueConstraint("job_id", "fingerprint", name="uq_imported_games_job_fingerprint"),)
+
+
+class Improvement(Base):
+    __tablename__ = "improvements"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("imported_games.id", ondelete="CASCADE"), index=True)
+    ply: Mapped[int] = mapped_column(Integer)
+    data: Mapped[dict] = mapped_column(JSONB)
+    puzzle_id: Mapped[str | None] = mapped_column(ForeignKey("puzzles.id", ondelete="SET NULL"), nullable=True)
+    __table_args__ = (UniqueConstraint("game_id", "ply", name="uq_improvements_game_ply"),)

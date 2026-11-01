@@ -18,6 +18,7 @@ def attempt_view(attempt: Attempt) -> dict:
         "total_plies": len(attempt.puzzle.moves) - 1,
         "mistakes": attempt.mistakes, "hints_used": attempt.hints_used,
         "last_move": attempt.last_move, "elapsed_ms": attempt.elapsed_ms,
+        "collection": attempt.puzzle.collection, "rating_estimated": attempt.puzzle.rating_estimated,
     }
 
 

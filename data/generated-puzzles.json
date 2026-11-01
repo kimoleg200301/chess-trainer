@@ -1,0 +1,381 @@
+[
+  {
+    "id": "gef83fff4a346b70f27459490cb5cfca",
+    "initial_fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/P1N2N2/1PPP1PPP/R1BQK2R b KQkq - 0 5",
+    "moves": [
+      "c5f2",
+      "e1f2"
+    ],
+    "themes": [
+      "defensiveMove",
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/szom2tog",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 10,
+    "phase": "opening"
+  },
+  {
+    "id": "gb18a7622c1c7246b4168bc32d259002",
+    "initial_fen": "r1b2rk1/pppp1ppp/5q2/4Q3/1nB1P3/5N2/PPP3PP/RN3RK1 b - - 0 11",
+    "moves": [
+      "f6e5",
+      "f3e5"
+    ],
+    "themes": [
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/mntamgdj",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 22,
+    "phase": "middlegame"
+  },
+  {
+    "id": "gb63903a6b92ba83c5a0e1f9b064a8c4",
+    "initial_fen": "rn1k1b1r/pbpp1Q1p/1p2p3/7B/3PP2q/P1N5/1PP2PPP/R3K2R b KQ - 0 12",
+    "moves": [
+      "b8c6",
+      "f7e8"
+    ],
+    "themes": [
+      "backRankMate",
+      "mateIn1"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/j1dkb5dw",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 24,
+    "phase": "middlegame"
+  },
+  {
+    "id": "gbe081c48c11c5b84b8fc0d96dca5b3f",
+    "initial_fen": "r6r/pp1k2pp/2pb2b1/8/5N2/2PPP3/PP4PP/R3K2R w KQ - 3 19",
+    "moves": [
+      "f4g6",
+      "h7g6"
+    ],
+    "themes": [
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/rklpc7mk",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 37,
+    "phase": "endgame"
+  },
+  {
+    "id": "ge5c61c2d216f9346d21d584f55a53e7",
+    "initial_fen": "rnb2rk1/1p4pp/p3p3/1B1pPp2/1b1N4/2q3Q1/P1PK1PPP/RR6 w - - 0 17",
+    "moves": [
+      "g3c3",
+      "b4c3",
+      "d2c3",
+      "a6b5"
+    ],
+    "themes": [
+      "fork"
+    ],
+    "rating": 1100,
+    "game_url": "https://lichess.org/n5crd00d",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 33,
+    "phase": "middlegame"
+  },
+  {
+    "id": "g3d6dc9b53e4927d29d57cc0b37085c5",
+    "initial_fen": "r1b2rk1/1pppnpp1/pb4qp/4P3/1PBpN3/P2P1N2/2P2PPP/R2QR1K1 b - - 2 13",
+    "moves": [
+      "d7d5",
+      "e5d6"
+    ],
+    "themes": [
+      "pin"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/iinnkv77",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 26,
+    "phase": "middlegame"
+  },
+  {
+    "id": "g0836fae9544550f232c326ca18dc7d4",
+    "initial_fen": "r2qkb1r/3p1pp1/2N3np/p7/Bpb1P3/8/PP1P1PPP/R1BQ1RK1 b kq - 0 15",
+    "moves": [
+      "c4f1",
+      "c6d8"
+    ],
+    "themes": [
+      "pin"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/z2ncoii6",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 30,
+    "phase": "middlegame"
+  },
+  {
+    "id": "g62176031b226d6da2d998143f68fb51",
+    "initial_fen": "rn2kbnr/1p3ppp/p3p3/2p5/P1B2PPq/2NP2Q1/1PPB3P/R3K2R b KQkq - 2 12",
+    "moves": [
+      "h4g3",
+      "h2g3"
+    ],
+    "themes": [
+      "defensiveMove",
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/vb3w3rmn",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 24,
+    "phase": "middlegame"
+  },
+  {
+    "id": "gce065bbef2a49db0282a2620c34fa0f",
+    "initial_fen": "2r2rk1/4bppp/1p2p3/3pPn2/pP1P1PP1/P1qQ1N2/5R1P/R5K1 w - - 0 22",
+    "moves": [
+      "d3c3",
+      "c8c3"
+    ],
+    "themes": [
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/iclkx584",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 43,
+    "phase": "middlegame"
+  },
+  {
+    "id": "gc15aae1cd2a387b1d2b2b0c1bbcaec7",
+    "initial_fen": "r1b4k/pp1pN1pp/2p5/4N3/4P3/8/PPn3PP/5BK1 b - - 1 18",
+    "moves": [
+      "d7d6",
+      "e5f7"
+    ],
+    "themes": [
+      "mateIn1"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/mntamgdj",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 36,
+    "phase": "endgame"
+  },
+  {
+    "id": "g5345bdffbb5556819ad8c26f332ad55",
+    "initial_fen": "r2q1rk1/pppb2p1/3pP1Qp/8/8/3B4/PPP2bPP/2KRR3 b - - 0 18",
+    "moves": [
+      "f2e1",
+      "g6h7"
+    ],
+    "themes": [
+      "mateIn1"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/ufcqmfxx",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 36,
+    "phase": "middlegame"
+  },
+  {
+    "id": "gf84b70e06341577b194c6075302454a",
+    "initial_fen": "1r2k2r/pb4pp/8/3qp3/1P6/3p3P/PP2N1P1/1RBQKR2 b k - 0 20",
+    "moves": [
+      "d5g2",
+      "d1d3"
+    ],
+    "themes": [
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/61wsdfp4",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 40,
+    "phase": "middlegame"
+  },
+  {
+    "id": "gb409753403c746b83648e132c73274a",
+    "initial_fen": "2kr3r/p2p2Bp/1p2p1p1/n1p1np2/P1P3P1/2P2P1P/4BP2/1R3RK1 b - - 4 19",
+    "moves": [
+      "h8g8",
+      "g7e5"
+    ],
+    "themes": [
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/md14boea",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 38,
+    "phase": "middlegame"
+  },
+  {
+    "id": "ge84fa656ca080fc87532b954438edbf",
+    "initial_fen": "r1b2r1k/3qb2p/p1n1R2Q/1p3N2/3P4/1B6/PPP2PPP/R5K1 b - - 0 21",
+    "moves": [
+      "f8f5",
+      "e6g6",
+      "f5f7",
+      "b3f7",
+      "b5b4",
+      "g6g8"
+    ],
+    "themes": [
+      "backRankMate",
+      "discoveredAttack",
+      "hangingPiece",
+      "mateIn3",
+      "quietMove"
+    ],
+    "rating": 1450,
+    "game_url": "https://lichess.org/2cj9hphe",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 42,
+    "phase": "middlegame"
+  },
+  {
+    "id": "g12e64f01521c3209a45862414f458a6",
+    "initial_fen": "3R4/q4kr1/p6Q/4P3/8/8/P5PP/5K2 b - - 0 35",
+    "moves": [
+      "a7c7",
+      "h6f6"
+    ],
+    "themes": [
+      "mateIn1"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/55a83jiu",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 70,
+    "phase": "endgame"
+  },
+  {
+    "id": "gdc4025fe29e178ae727eea1665fedba",
+    "initial_fen": "4R3/p5pk/7p/8/PP4P1/2b3PK/2r1B3/8 b - - 8 42",
+    "moves": [
+      "c3b4",
+      "e2d3",
+      "g7g6",
+      "d3c2"
+    ],
+    "themes": [
+      "fork",
+      "hangingPiece"
+    ],
+    "rating": 1100,
+    "game_url": "https://lichess.org/i5u1h3yk",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 84,
+    "phase": "endgame"
+  },
+  {
+    "id": "g5fa5fb65d32eb2626b78334736d0c3e",
+    "initial_fen": "6k1/7p/8/8/1R4p1/1P6/P1P4r/3K4 b - - 1 30",
+    "moves": [
+      "g4g3",
+      "b4g4",
+      "g8f7",
+      "g4g3"
+    ],
+    "themes": [
+      "hangingPiece"
+    ],
+    "rating": 1100,
+    "game_url": "https://lichess.org/descpsmi",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 60,
+    "phase": "endgame"
+  },
+  {
+    "id": "g9cf6178ee620c7bcd4c6ffa1c1c6ce4",
+    "initial_fen": "4r1k1/2Q3R1/6p1/7p/2B5/1P4K1/P6P/1N6 b - - 2 38",
+    "moves": [
+      "g8f8",
+      "g7g8"
+    ],
+    "themes": [
+      "mateIn1"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/7hvhc1t7",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 76,
+    "phase": "endgame"
+  },
+  {
+    "id": "gcb761badc4ca134690334bc50ab1717",
+    "initial_fen": "5r2/pp2k1p1/2p3p1/8/3P4/2P1P1bP/PP1K2P1/5R2 w - - 1 25",
+    "moves": [
+      "f1f8",
+      "e7f8"
+    ],
+    "themes": [
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/rklpc7mk",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 49,
+    "phase": "endgame"
+  },
+  {
+    "id": "g0a5fa19a0a85e8ff8b73ea55306cb79",
+    "initial_fen": "2kr2nr/1p4pp/p2bp3/2p5/P1P2BP1/2N3P1/1PP5/2K1R2R b - - 3 19",
+    "moves": [
+      "d6f4",
+      "g3f4"
+    ],
+    "themes": [
+      "defensiveMove",
+      "hangingPiece"
+    ],
+    "rating": 900,
+    "game_url": "https://lichess.org/vb3w3rmn",
+    "opening_tags": "",
+    "collection": "public",
+    "rating_estimated": true,
+    "source_ply": 38,
+    "phase": "middlegame"
+  }
+]

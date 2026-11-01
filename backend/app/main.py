@@ -1,7 +1,6 @@
 from collections import Counter
 from datetime import timedelta
 import os
-import threading
 from typing import Literal
 
 import chess
@@ -15,15 +14,17 @@ from sqlalchemy import and_, delete, exists, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from .collections import Collection, COLLECTION_NAMES, collection_filter, visible_puzzles
 from .config import settings
 from .db import get_db
+from .engine_resources import engine_slots
+from .imports_api import router as imports_router
 from .models import Attempt, LoginSession, Puzzle, Review, User, now
 from .security import create_session, current_user, hash_password, login_limiter, token_hash, verify_password
 from .themes import THEMES
 from .training import attempt_view, finalize, get_attempt, play_move, record_elapsed, schedule_review, solution
 
 app = FastAPI(title="Tactics Lab API", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
-engine_slots = threading.BoundedSemaphore(1)
 dummy_password_hash = hash_password("nonexistent-user-dummy-password")
 
 
@@ -55,6 +56,8 @@ class LoginBody(BaseModel):
 
 
 class StartBody(BaseModel):
+    collection: Collection = "lichess"
+    puzzle_id: str | None = Field(default=None, min_length=1, max_length=32)
     theme: str | None = Field(default=None, max_length=64)
     min_rating: int = Field(default=800, ge=0, le=4000)
     max_rating: int = Field(default=1800, ge=0, le=4000)
@@ -117,32 +120,40 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db), 
 
 
 @app.get("/api/meta")
-def meta(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    total, low, high = db.execute(select(func.count(), func.min(Puzzle.rating), func.max(Puzzle.rating)).select_from(Puzzle)).one()
-    counts = Counter(theme for row in db.scalars(select(Puzzle.themes)) for theme in row if theme in THEMES)
+def meta(collection: Collection = "lichess", db: Session = Depends(get_db), user: User = Depends(current_user)):
+    scope = collection_filter(user.id, collection)
+    total, low, high = db.execute(select(func.count(), func.min(Puzzle.rating), func.max(Puzzle.rating)).select_from(Puzzle).where(scope)).one()
+    counts = Counter(theme for row in db.scalars(select(Puzzle.themes).where(scope)) for theme in row if theme in THEMES)
+    collection_counts = dict(db.execute(select(Puzzle.collection, func.count()).where(visible_puzzles(user.id)).group_by(Puzzle.collection)).all())
     return {"total_puzzles": total, "min_rating": low or 0, "max_rating": high or 4000,
-            "themes": [{"id": theme, "name": THEMES[theme], "count": count} for theme, count in counts.most_common()]}
+            "themes": [{"id": theme, "name": THEMES[theme], "count": count} for theme, count in counts.most_common()],
+            "collections": [{"id": key, "name": name, "count": sum(collection_counts.values()) if key == "all" else collection_counts.get(key, 0)} for key, name in COLLECTION_NAMES.items()]}
 
 
 @app.post("/api/training/start")
 def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     # Also serialize against an administrative restore into a previously empty account.
     db.scalar(select(User).where(User.id == user.id).with_for_update())
-    if body.theme and body.theme not in THEMES:
-        raise HTTPException(422, "Неизвестный тактический мотив.")
-    query = select(Puzzle).where(Puzzle.rating.between(body.min_rating, body.max_rating))
-    if body.theme:
-        query = query.where(Puzzle.themes.contains([body.theme]))
-    if body.mode == "review":
-        query = query.join(Review, Review.puzzle_id == Puzzle.id).where(Review.user_id == user.id, Review.due_at <= now())
-        query = query.order_by(Review.due_at, func.random())
+    if body.puzzle_id:
+        puzzle = db.scalar(select(Puzzle).where(Puzzle.id == body.puzzle_id, visible_puzzles(user.id)))
+        if not puzzle:
+            raise HTTPException(404, "Задача не найдена в доступных базах.")
     else:
-        seen = exists().where(Attempt.puzzle_id == Puzzle.id, Attempt.user_id == user.id)
-        # Prefer unseen puzzles. Once exhausted, allow practice with familiar material.
-        query = query.order_by(seen, func.random())
-    puzzle = db.scalar(query.limit(1))
-    if not puzzle:
-        raise HTTPException(404, "Нет задач с такими параметрами." if body.mode == "practice" else "Пока нет задач для повторения с такими параметрами.")
+        if body.theme and body.theme not in THEMES:
+            raise HTTPException(422, "Неизвестный тактический мотив.")
+        query = select(Puzzle).where(collection_filter(user.id, body.collection), Puzzle.rating.between(body.min_rating, body.max_rating))
+        if body.theme:
+            query = query.where(Puzzle.themes.contains([body.theme]))
+        if body.mode == "review":
+            query = query.join(Review, Review.puzzle_id == Puzzle.id).where(Review.user_id == user.id, Review.due_at <= now())
+            query = query.order_by(Review.due_at, func.random())
+        else:
+            seen = exists().where(Attempt.puzzle_id == Puzzle.id, Attempt.user_id == user.id)
+            # Prefer unseen puzzles. Once exhausted, allow practice with familiar material.
+            query = query.order_by(seen, func.random())
+        puzzle = db.scalar(query.limit(1))
+        if not puzzle:
+            raise HTTPException(404, "Нет задач с такими параметрами." if body.mode == "practice" else "Пока нет задач для повторения с такими параметрами.")
     board = chess.Board(puzzle.initial_fen)
     board.push_uci(puzzle.moves[0])
     attempt = Attempt(user_id=user.id, puzzle=puzzle, puzzle_id=puzzle.id, fen=board.fen(),
@@ -244,7 +255,8 @@ def stats(db: Session = Depends(get_db), user: User = Depends(current_user)):
             "timed_solutions": len(measured_solutions),
             "by_theme": sorted(theme_counts.values(), key=lambda item: -item["attempts"]),
             "recent": [{"puzzle_id": row.puzzle_id, "rating": row.puzzle.rating, "status": row.status,
-                        "created_at": row.created_at.isoformat(), "elapsed_ms": row.elapsed_ms} for row in rows[:10]]}
+                        "created_at": row.created_at.isoformat(), "elapsed_ms": row.elapsed_ms,
+                        "collection": row.puzzle.collection, "rating_estimated": row.puzzle.rating_estimated} for row in rows[:10]]}
 
 
 @app.get("/api/progress/export")
@@ -254,6 +266,9 @@ def export_progress(db: Session = Depends(get_db), user: User = Depends(current_
     return JSONResponse(snapshot.model_dump(mode="json"), headers={
         "Content-Disposition": f'attachment; filename="tactics-progress-{now().date()}.json"'
     })
+
+
+app.include_router(imports_router)
 
 
 @app.api_route("/api/{unmatched:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])

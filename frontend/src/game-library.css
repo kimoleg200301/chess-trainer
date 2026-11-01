@@ -1,0 +1,145 @@
+.game-library { max-width: 1200px; margin: 0 auto; }
+.game-library .page-heading h1 { font-size: 27px; max-width: 690px; }
+.library-heading-icon { flex-shrink: 0; width: 58px; height: 58px; border-radius: 17px; display: grid; place-items: center; color: #7d9765; background: #edf2e5; border: 1px solid #e1e8d7; }
+.library-import-panels { display: grid; grid-template-columns: 1.08fr 1fr; gap: 22px; margin-bottom: 23px; }
+.library-import-panels > .panel { padding: 25px; min-width: 0; }
+.game-library .library-panel-copy { font-size: 12px; line-height: 1.8; color: #7f8e74; margin: -4px 0 20px; }
+.chesscom-import > label, .import-options > label { font-size: 11px; color: #6d7f62; }
+.chesscom-import > input { margin-top: 8px; font-size: 13px; }
+.import-options { display: grid; grid-template-columns: 1.6fr 1fr; gap: 13px; margin-top: 17px; }
+.import-options > label { min-width: 0; }
+.import-options > label > span { font-size: 9px; font-weight: 400; color: #949e89; margin-left: 4px; }
+.import-options input { display: block; margin-top: 8px; font-size: 12px; min-width: 0; }
+.import-small-note { color: #89967c; font-size: 10px; line-height: 1.8; margin-top: 11px; }
+.game-library .chesscom-import > .button { margin-top: 19px; width: 100%; font-size: 12px; }
+.chesscom-attribution { margin-top: 12px; text-align: center; color: #99a28e; font-size: 9px; line-height: 1.6; }
+.public-import { background: #f2f6ed; border-color: #dce7d2; display: flex; flex-direction: column; align-items: flex-start; }
+.public-import-icon { width: 43px; height: 43px; border-radius: 12px; display: grid; place-items: center; background: #e5eedb; color: #75945e; margin-bottom: 15px; }
+.public-import h2 { font-size: 19px; line-height: 1.45; letter-spacing: -.4px; }
+.public-import > p:not(.import-small-note) { color: #809174; font-size: 12px; line-height: 1.9; margin-top: 10px; }
+.public-import-steps { display: grid; gap: 11px; margin: 21px 0 24px; color: #6e875b; font-size: 11px; }
+.public-import-steps > span { display: flex; align-items: center; gap: 8px; }
+.public-import-steps svg { flex-shrink: 0; }
+.game-library .public-import > .button { width: 100%; margin-top: auto; font-size: 11px; padding-left: 11px; padding-right: 11px; }
+.library-notice { display: flex; align-items: center; gap: 10px; background: #edf5e7; border: 1px solid #d2e1c6; border-radius: 10px; padding: 12px 14px; margin-bottom: 20px; color: #688553; font-size: 12px; line-height: 1.7; }
+.library-notice > svg { flex-shrink: 0; }
+.library-notice > .icon-button { margin-left: auto; flex-shrink: 0; }
+.library-workspace { display: grid; grid-template-columns: 255px minmax(0, 1fr); gap: 22px; align-items: start; }
+.game-library .import-history { padding: 19px 13px; }
+.import-history .panel-title { padding: 0 6px; margin-bottom: 12px; }
+.import-history .panel-title h2 { font-size: 14px; }
+.import-history-list { display: grid; gap: 6px; }
+.import-history-list > button { display: block; text-align: left; border: 1px solid transparent; border-radius: 8px; padding: 12px 11px; background: transparent; min-width: 0; color: #77866e; }
+.import-history-list > button:hover { background: #f4f6ef; }
+.import-history-list > button.selected { background: #eef4e7; border-color: #dbe6ce; color: #4d6d40; }
+.import-history-list strong { display: block; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.import-history-list small { display: block; font-size: 9px; color: #95a087; margin-top: 5px; }
+.import-history-list button > span { display: block; font-size: 9px; line-height: 1.8; margin-top: 7px; }
+.import-history-list button > span > span { color: #a4ae96; padding: 0 3px; }
+.library-results { min-width: 0; }
+.library-empty { font-size: 12px; line-height: 1.9; color: #89967b; }
+.import-history > .library-empty { padding: 8px; font-size: 11px; }
+.library-placeholder { text-align: center; min-height: 230px; display: flex; align-items: center; justify-content: center; flex-direction: column; color: #93a17f; padding: 30px; }
+.library-placeholder h2 { font-size: 17px; color: #637956; margin: 16px 0 9px; }
+.library-placeholder p { font-size: 12px; line-height: 1.9; max-width: 330px; }
+.library-placeholder > .spinner + p { margin-top: 15px; }
+.import-progress-panel { margin-bottom: 18px; }
+.import-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 13px; }
+.import-detail-heading h2 { font-size: 16px; overflow-wrap: anywhere; line-height: 1.5; }
+.import-detail-heading p { font-size: 11px; color: #8b977f; line-height: 1.8; margin-top: 6px; }
+.game-library .import-detail-heading > .button { min-height: 39px; font-size: 10px; padding: 9px 11px; flex-shrink: 0; }
+.import-complete { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #6e8d58; padding-top: 4px; white-space: nowrap; }
+.import-progress-track { height: 6px; background: #edf1e7; border-radius: 4px; margin-top: 20px; overflow: hidden; }
+.import-progress-track > span { display: block; height: 100%; background: #87a86b; border-radius: inherit; transition: width .2s; }
+.import-totals { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; }
+.import-totals > span { font-size: 10px; color: #8c987e; line-height: 1.8; }
+.import-totals strong { display: block; font-family: 'Manrope', sans-serif; color: #577348; font-size: 19px; font-weight: 700; }
+.improvement-filter { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #7d8d6f; margin-top: 18px; padding-top: 14px; border-top: 1px solid #e9eee1; font-weight: 400; cursor: pointer; }
+.improvement-filter input { width: 16px; height: 16px; min-height: 0; margin: 0; flex-shrink: 0; accent-color: #4a7040; }
+.imported-games { display: grid; gap: 15px; }
+.imported-game { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 21px; min-width: 0; }
+.imported-game.has-improvements { border-color: #d3e0c8; }
+.imported-game-heading { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; }
+.imported-game-heading > div { min-width: 0; }
+.imported-game h3 { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.imported-game h3 > span { color: #a4af97; font-weight: 400; }
+.imported-game-heading p { font-size: 9px; line-height: 1.8; margin-top: 5px; color: #98a18e; overflow-wrap: anywhere; }
+.imported-game-heading p > span { padding: 0 4px; }
+.game-status { display: inline-flex; gap: 5px; align-items: center; border-radius: 5px; padding: 5px 7px; white-space: nowrap; background: #f3f5ee; color: #89967d; font-size: 9px; flex-shrink: 0; }
+.game-status.analysing { background: #edf3e6; color: #6c8b51; }
+.game-status.completed { color: #78955d; }
+.game-status .spinner { width: 12px; height: 12px; }
+.game-progress { margin-top: 15px; }
+.game-progress > div { height: 3px; background: #f0f3e9; border-radius: 3px; overflow: hidden; }
+.game-progress > div > span { display: block; height: 100%; background: #adbd95; }
+.game-progress small { display: block; color: #a1aa95; font-size: 9px; margin-top: 6px; }
+.game-note { font-size: 11px; line-height: 1.8; color: #8d947f; margin-top: 13px; }
+.game-improvements { display: grid; gap: 12px; margin-top: 18px; }
+.improvement-card { background: #f8faf4; border: 1px solid #e6eddd; border-radius: 9px; padding: 15px; min-width: 0; }
+.improvement-heading { display: flex; align-items: center; justify-content: space-between; gap: 9px; flex-wrap: wrap; }
+.improvement-heading > div { display: flex; align-items: center; gap: 8px; }
+.improvement-move { font-family: 'Manrope', sans-serif; font-size: 14px; font-weight: 700; color: #47653c; }
+.improvement-side { font-size: 9px; color: #97a18c; }
+.improvement-phase { display: inline-block; margin-top: 8px; font-size: 9px; color: #879975; }
+.improvement-kind { font-size: 9px; color: #969f89; }
+.improvement-kind.can-practice { color: #76965a; }
+.improvement-card > p { margin-top: 8px; font-size: 11px; line-height: 1.8; color: #7a8d68; }
+.improvement-analysis { margin-top: 11px; }
+.improvement-analysis summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: #65814f; font-size: 10px; padding: 8px 0; list-style: none; }
+.improvement-analysis summary::-webkit-details-marker { display: none; }
+.improvement-analysis[open] summary > svg { transform: rotate(180deg); }
+.improvement-analysis-content { padding: 12px; margin-top: 4px; background: #fff; border: 1px solid #e7eddf; border-radius: 7px; }
+.move-comparison { display: flex; align-items: center; gap: 11px; color: #88947b; font-size: 10px; }
+.move-comparison strong { color: #4e6e40; margin-left: 4px; font-size: 13px; }
+.evaluation-comparison { display: flex; gap: 15px; flex-wrap: wrap; margin-top: 12px; color: #8f9a81; font-size: 10px; line-height: 1.8; }
+.evaluation-comparison strong { font-weight: 500; color: #6a815a; }
+.improvement-analysis-content > small { display: block; font-size: 9px; color: #a3ac98; line-height: 1.8; margin-top: 7px; }
+.candidate-line { border-top: 1px solid #edf0e7; padding-top: 9px; margin-top: 8px; color: #718763; font-size: 11px; line-height: 1.8; word-spacing: 5px; overflow-wrap: anywhere; }
+.improvement-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.game-library .improvement-actions > .button { font-size: 10px; min-height: 37px; padding: 9px 11px; }
+.improvement-actions > span { color: #a0a88f; font-size: 9px; line-height: 1.7; width: 100%; }
+.library-method-note { text-align: center; max-width: 790px; margin: 24px auto 0; font-size: 11px; line-height: 1.9; color: #97a18a; }
+@media (max-width: 1000px) {
+  .game-library .page-heading h1 { font-size: 24px; }
+  .library-workspace { grid-template-columns: 220px minmax(0, 1fr); gap: 16px; }
+  .library-import-panels { gap: 16px; }
+  .library-import-panels > .panel { padding: 20px; }
+  .import-detail-heading { flex-wrap: wrap; }
+  .imported-game { padding: 17px; }
+  .imported-game-heading { flex-wrap: wrap; }
+  .improvement-card { padding: 12px; }
+}
+@media (max-width: 700px) {
+  .library-heading-icon { display: none; }
+  .library-import-panels { grid-template-columns: 1fr; gap: 14px; }
+  .library-workspace { grid-template-columns: 1fr; }
+  .public-import { padding: 20px; }
+  .public-import-icon { margin-bottom: 11px; width: 35px; height: 35px; }
+  .public-import-icon svg { width: 21px; }
+  .public-import h2 { font-size: 17px; }
+  .public-import > p:not(.import-small-note) { font-size: 11px; }
+  .public-import-steps { margin: 17px 0; font-size: 10px; gap: 9px; }
+  .game-library .public-import > .button { font-size: 10px; }
+  .import-history-list { display: flex; overflow-x: auto; padding-bottom: 5px; }
+  .import-history-list > button { flex: 0 0 205px; }
+  .library-import-panels > .panel { padding: 21px; }
+  .library-notice { font-size: 11px; }
+  .game-library .import-progress-panel { padding: 18px; }
+  .game-library .import-detail-heading > .button { min-height: 40px; }
+  .import-totals { gap: 13px; }
+  .import-totals > span { font-size: 9px; }
+  .import-totals strong { font-size: 18px; }
+  .improvement-filter { font-size: 10px; line-height: 1.7; }
+  .library-method-note { font-size: 10px; margin-top: 20px; }
+}
+@media (max-width: 390px) {
+  .game-library .page-heading h1 { font-size: 22px; }
+  .import-options { gap: 8px; grid-template-columns: 1.5fr 1fr; }
+  .import-options > label > span { display: block; margin-left: 0; }
+  .import-options { align-items: end; }
+  .import-options input { padding-left: 9px; padding-right: 9px; }
+  .game-library .chesscom-import > .button { font-size: 11px; padding-left: 10px; padding-right: 10px; }
+  .evaluation-comparison { gap: 7px; }
+  .move-comparison { gap: 7px; }
+  .move-comparison strong { margin-left: 2px; }
+}

@@ -1,0 +1,440 @@
+{
+  "source": "Lichess rated standard games, January 2013 archive",
+  "source_url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-01.pgn.zst",
+  "license": "CC0",
+  "license_url": "https://database.lichess.org/",
+  "downloaded_on": "2026-11-01",
+  "selection": "First 40 complete standard games with 20–180 plies from the January 2013 archive; legal moves replay-validated. Generated solutions are independently calculated by Stockfish.",
+  "archive_sha256": "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635",
+  "corpus_sha256": "42d7a99efa319068f91cee9123b03b73f75ab1770484e0f2aea05bd0092235b7",
+  "games": [
+    {
+      "id": "j1dkb5dw",
+      "url": "https://lichess.org/j1dkb5dw",
+      "white": "BFG9k",
+      "black": "mamalak",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 25,
+      "sha256": "697bac5e98a7ae86e882bebd64ac5626d1d2b6b721d957cc5d5dbad6b1a54d7d"
+    },
+    {
+      "id": "a9tcp02g",
+      "url": "https://lichess.org/a9tcp02g",
+      "white": "Desmond_Wilson",
+      "black": "savinka59",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 35,
+      "sha256": "29385b4bd096a34649f737dbaed34e0b27cc12fb3de05e1ff3c7eb46f47074b5"
+    },
+    {
+      "id": "szom2tog",
+      "url": "https://lichess.org/szom2tog",
+      "white": "Kozakmamay007",
+      "black": "VanillaShamanilla",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 21,
+      "sha256": "c146057bc64097efcdedae36c312e2408fb6c0f735ecad5a2cd532b8406c85e6"
+    },
+    {
+      "id": "rklpc7mk",
+      "url": "https://lichess.org/rklpc7mk",
+      "white": "Naitero_Nagasaki",
+      "black": "800",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 94,
+      "sha256": "fc0927cf77af330211308e429aa5036b5f24a28a874d06c5ed8a8f0d0ffe5328"
+    },
+    {
+      "id": "1xb3os63",
+      "url": "https://lichess.org/1xb3os63",
+      "white": "nichiren1967",
+      "black": "Naitero_Nagasaki",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 46,
+      "sha256": "b98a9d7c4317fe9942bc1c61edd3e5ca784613b50e6934ffaf6950dab5270a2e"
+    },
+    {
+      "id": "6x5nq6qd",
+      "url": "https://lichess.org/6x5nq6qd",
+      "white": "sport",
+      "black": "shamirbj",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 63,
+      "sha256": "1a81a23279e999491daa86054e7c848e3b890fa7a737a2cd30829f1ed3efb9fe"
+    },
+    {
+      "id": "fl7asfa0",
+      "url": "https://lichess.org/fl7asfa0",
+      "white": "tiggran",
+      "black": "arion_6",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 38,
+      "sha256": "c7c10cd0f0c807b56b95e826849b55255d1484fdfbc4370d7637f1776ecec061"
+    },
+    {
+      "id": "7b44wxzu",
+      "url": "https://lichess.org/7b44wxzu",
+      "white": "hostking",
+      "black": "troepianiz",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 55,
+      "sha256": "d585177a69a200c530a0570240699f9672daeffcaabfe1373a1262158c3225bd"
+    },
+    {
+      "id": "7rzcutsf",
+      "url": "https://lichess.org/7rzcutsf",
+      "white": "manos68",
+      "black": "jtkjtkful",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 73,
+      "sha256": "bb1f54b87014a1e235e2a9754c266e205cf5e92e524d0e73a2026741901fa397"
+    },
+    {
+      "id": "9opx3qh7",
+      "url": "https://lichess.org/9opx3qh7",
+      "white": "adamsrj",
+      "black": "hamiakaz",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 90,
+      "sha256": "73b49373a36fa240bd70e982085a7ea47cc5084f2da86c04a23b02704c10d758"
+    },
+    {
+      "id": "1hi3aveq",
+      "url": "https://lichess.org/1hi3aveq",
+      "white": "BFG9k",
+      "black": "Sagaz",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 74,
+      "sha256": "64b16e6eaa4ab9b5726954ce260429d0ae851c2995ef029caea265ca62700550"
+    },
+    {
+      "id": "n5crd00d",
+      "url": "https://lichess.org/n5crd00d",
+      "white": "arion_6",
+      "black": "Naitero_Nagasaki",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 93,
+      "sha256": "f75217f355206b1ca9af81dce198e004e3f2a57f7a4d69c664a436028389fbbf"
+    },
+    {
+      "id": "iinnkv77",
+      "url": "https://lichess.org/iinnkv77",
+      "white": "Kozakmamay007",
+      "black": "vadi",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 49,
+      "sha256": "e883273c12dcae7ca79125d62d2140fef52e9fed612c1f9cd8981e2ed5b7592f"
+    },
+    {
+      "id": "z2ncoii6",
+      "url": "https://lichess.org/z2ncoii6",
+      "white": "Abd0",
+      "black": "Killi",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 69,
+      "sha256": "a6403aa468a0a7dcc777d3e5158d5e6e03d737000962073cc0a367db0550ab8f"
+    },
+    {
+      "id": "vb3w3rmn",
+      "url": "https://lichess.org/vb3w3rmn",
+      "white": "nichiren1967",
+      "black": "chinokoli",
+      "date": "2012.12.31",
+      "result": "1/2-1/2",
+      "plies": 117,
+      "sha256": "d808118ae2696f9d9f287fb45500ef63ed52770a5c7dff60a64d8bd98711a019"
+    },
+    {
+      "id": "iclkx584",
+      "url": "https://lichess.org/iclkx584",
+      "white": "Voltvolf",
+      "black": "Marzinkus",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 74,
+      "sha256": "030c5aa3c75a3f668689d9346e7ea2f84d147ce443ce8d2075e88c56452a3902"
+    },
+    {
+      "id": "i62y90w7",
+      "url": "https://lichess.org/i62y90w7",
+      "white": "VanillaShamanilla",
+      "black": "mamalak",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 127,
+      "sha256": "8d9afd611e3ed1bd1fd1225387d4e94d9ea3b8f4d9c85e717a87d6ee7ec6b119"
+    },
+    {
+      "id": "kpyneu5v",
+      "url": "https://lichess.org/kpyneu5v",
+      "white": "savinka59",
+      "black": "Desmond_Wilson",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 59,
+      "sha256": "0ee17371d60d03a4e304bdb92e256d391deccaa72f4f02ac377eb783f474789e"
+    },
+    {
+      "id": "mntamgdj",
+      "url": "https://lichess.org/mntamgdj",
+      "white": "Killi",
+      "black": "Abd0",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 37,
+      "sha256": "53c020da6f67ea0cd1857c2519a517895cf4583f081ac1d1f1f09ae981e4d386"
+    },
+    {
+      "id": "55a83jiu",
+      "url": "https://lichess.org/55a83jiu",
+      "white": "ghosty",
+      "black": "jorespi",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 71,
+      "sha256": "3e5dfcb0bcd331f81f2f69368c6e78da1c1cf8ea542df7044ebb09625586f375"
+    },
+    {
+      "id": "ufcqmfxx",
+      "url": "https://lichess.org/ufcqmfxx",
+      "white": "6WX",
+      "black": "adamsrj",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 37,
+      "sha256": "2a820e3e08d2b1315f1e7d05233b65f35215ad4244fc9ca0f3f399530589ff2d"
+    },
+    {
+      "id": "n3p0bgc7",
+      "url": "https://lichess.org/n3p0bgc7",
+      "white": "georgek",
+      "black": "b777",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 33,
+      "sha256": "d2d2afc75348b62ac1a184fe4879075bd606f0425f6eb7b7ce9b18c0a0854a6f"
+    },
+    {
+      "id": "v778e8mr",
+      "url": "https://lichess.org/v778e8mr",
+      "white": "chinokoli",
+      "black": "nichiren1967",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 93,
+      "sha256": "30ed56958ece9634dabc2dd191533e716167006e83a32d6e29c4fad74ec30935"
+    },
+    {
+      "id": "fiv37vzi",
+      "url": "https://lichess.org/fiv37vzi",
+      "white": "sebastian44",
+      "black": "ticotico",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 63,
+      "sha256": "a9f3099fa03804198d19c865c51b0f402e96f61a2bfe00a3283444c17c19a349"
+    },
+    {
+      "id": "aw9vx3l5",
+      "url": "https://lichess.org/aw9vx3l5",
+      "white": "Federico",
+      "black": "Naitero_Nagasaki",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 85,
+      "sha256": "fe51fe626090fa32fb789d9b493b805ef71c2b95f242a153e9eab656f1ba40c5"
+    },
+    {
+      "id": "flvoc7ly",
+      "url": "https://lichess.org/flvoc7ly",
+      "white": "hostking",
+      "black": "troepianiz",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 42,
+      "sha256": "91bb4e2fc5a3172335a5d2fa61138185d3f50a1862c49f1c47a56bdc2242d605"
+    },
+    {
+      "id": "6vapfe1h",
+      "url": "https://lichess.org/6vapfe1h",
+      "white": "800",
+      "black": "Voltvolf",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 97,
+      "sha256": "a428a242dffc34b3b3d66a6a5f73f6bcc13bd4269559a9d7fc7b942ec2675a6f"
+    },
+    {
+      "id": "m45sueue",
+      "url": "https://lichess.org/m45sueue",
+      "white": "jorespi",
+      "black": "Marzinkus",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 55,
+      "sha256": "b264dcad9cf588f8e6c6784fc1ef87e2f05535e3cb68901aec1017e7e2099c3e"
+    },
+    {
+      "id": "15lzmn9d",
+      "url": "https://lichess.org/15lzmn9d",
+      "white": "omarojo",
+      "black": "josefo",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 59,
+      "sha256": "f9ca3edf7c378b467169388dc953cc35eb83be9af40c2b11de0af73fe0c0359a"
+    },
+    {
+      "id": "561bha9i",
+      "url": "https://lichess.org/561bha9i",
+      "white": "cheesedout",
+      "black": "pseudoknight",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 81,
+      "sha256": "cd95d596659c994e2dcea1684abc79f51ceed9088ca1370eba0672324bd3ac06"
+    },
+    {
+      "id": "i5u1h3yk",
+      "url": "https://lichess.org/i5u1h3yk",
+      "white": "Abd0",
+      "black": "Killi",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 98,
+      "sha256": "66c3d1a6284c39b31f585d4e6e213786b829195d5244bfbfde6ca738c440c6a8"
+    },
+    {
+      "id": "descpsmi",
+      "url": "https://lichess.org/descpsmi",
+      "white": "j-jorjik",
+      "black": "jesuss",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 91,
+      "sha256": "1db844dc234bb5c238724cc463b743b9e7ed75ee2d1ba16f2021629f15f0644f"
+    },
+    {
+      "id": "8ok6jtv5",
+      "url": "https://lichess.org/8ok6jtv5",
+      "white": "barriosgb2",
+      "black": "Boss92",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 48,
+      "sha256": "4b0b01607117d91970ca926d01f36cc74ed78aa76ccc89e38f7af167b1cff6f1"
+    },
+    {
+      "id": "a301qp92",
+      "url": "https://lichess.org/a301qp92",
+      "white": "sport",
+      "black": "georgek",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 86,
+      "sha256": "b69a8b9043ee06d12ea45367728334894f7f623575239da0a7d4cf89064278ae"
+    },
+    {
+      "id": "61wsdfp4",
+      "url": "https://lichess.org/61wsdfp4",
+      "white": "adamsrj",
+      "black": "6WX",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 49,
+      "sha256": "00364fce86f00fde9c3fe7bde907a349bc6a7d945d284a237c4ffd9854a0ce82"
+    },
+    {
+      "id": "7hvhc1t7",
+      "url": "https://lichess.org/7hvhc1t7",
+      "white": "migsan",
+      "black": "MARC0",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 77,
+      "sha256": "7b275328eea2b7a4b228e59116c5a833ac5dfc8a2d26dcdac7b25b6aaad95851"
+    },
+    {
+      "id": "md14boea",
+      "url": "https://lichess.org/md14boea",
+      "white": "metrolog",
+      "black": "b777",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 77,
+      "sha256": "bba6b1062e70a52c386fb61f623402c63ad4df9e09a57689644305098c34a9d2"
+    },
+    {
+      "id": "e0p9f3qt",
+      "url": "https://lichess.org/e0p9f3qt",
+      "white": "Desmond_Wilson",
+      "black": "ghosty",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 48,
+      "sha256": "ce2700f9d6428adddceba58fd0f979e40934163398b28d7e454c8bcb6a4dc33d"
+    },
+    {
+      "id": "2cj9hphe",
+      "url": "https://lichess.org/2cj9hphe",
+      "white": "tiggran",
+      "black": "barriosgb2",
+      "date": "2012.12.31",
+      "result": "1-0",
+      "plies": 171,
+      "sha256": "869c85141a47e090861b1aef6840b05c68dc806d9efed0101ddd0efd2f0864c7"
+    },
+    {
+      "id": "k29ncaud",
+      "url": "https://lichess.org/k29ncaud",
+      "white": "troepianiz",
+      "black": "hostking",
+      "date": "2012.12.31",
+      "result": "0-1",
+      "plies": 106,
+      "sha256": "fec0b5fc19f8fc1d6a3b33ff2a059a8ca66f22d06f9ec93a883a8dce60e841ad"
+    }
+  ],
+  "generation": {
+    "engine": "Stockfish 15.1",
+    "quick_nodes": 40000,
+    "verify_nodes": 500000,
+    "max_seconds_per_probe": 2.0,
+    "quick_max_seconds_per_probe": 0.2,
+    "puzzles": 20,
+    "analysed_positions": 23,
+    "games_represented": 17,
+    "phases": {
+      "opening": 1,
+      "middlegame": 12,
+      "endgame": 7
+    },
+    "phase_rule": "Heuristic: endgame if at most 12 pieces, or no queens and at most 6 non-pawn/non-king pieces; otherwise opening through move 10, middlegame thereafter.",
+    "rating": "Heuristic estimate, not a calibrated Lichess rating",
+    "bank_sha256": "f6dc3c1c28fb6a96ad05aae2e4fbc0b356431daa57edc1a0a2a40911be854a4b"
+  },
+  "verification": {
+    "engine": "Stockfish 15.1",
+    "nodes_per_search": 1000000,
+    "seconds_per_search": 3.0,
+    "puzzles": 20,
+    "learner_moves": 25,
+    "provenance_and_legality": "passed",
+    "fresh_hash_choice_and_endpoint_checks": "passed",
+    "endpoint_checks": "Actual mate, or stable material after best reply with two winning learner moves within 120 cp and no forced mate"
+  }
+}

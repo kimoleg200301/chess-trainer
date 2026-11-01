@@ -1,0 +1,364 @@
+"""Bounded, resumable analysis of real games into improvements and tactics.
+
+The caller owns the engine process and concurrency limit. A job can checkpoint
+one zero-based game ply after each analyse_position call. Engine scores are from
+the moving player's point of view; they are never a puzzle difficulty rating.
+"""
+from __future__ import annotations
+
+import io
+from urllib.parse import urlparse
+
+import chess
+import chess.engine
+import chess.pgn
+
+MAX_PGN_BYTES = 2 * 1024 * 1024
+VALUES = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 0}
+
+
+class _QuietBuilder(chess.pgn.GameBuilder):
+    def handle_error(self, error):
+        self.game.errors.append(error)
+
+
+def parse_games(pgn_text: str, max_games: int = 50, max_plies: int = 400,
+                warnings: list[str] | None = None) -> list[dict]:
+    """Read complete standard games. Invalid games are skipped with explanations.
+
+    A warning list is optional. If no playable games remain, raise ValueError;
+    callers must not silently publish a partial or malformed game as a task.
+    """
+    if not isinstance(pgn_text, str) or len(pgn_text.encode("utf-8")) > MAX_PGN_BYTES:
+        raise ValueError("Файл PGN слишком большой: допустимо до 2 МБ.")
+    if not 1 <= max_games <= 1000 or not 1 <= max_plies <= 1000:
+        raise ValueError("Некорректный предел числа партий или ходов.")
+    notices = warnings if warnings is not None else []
+    stream = io.StringIO(pgn_text.lstrip("\ufeff"))
+    result = []
+    read_count = 0
+    while read_count < max_games:
+        try:
+            game = chess.pgn.read_game(stream, Visitor=_QuietBuilder)
+        except (ValueError, IndexError) as exc:
+            notices.append(f"Не удалось прочитать партию: {str(exc)[:120]}")
+            break
+        if game is None:
+            break
+        read_count += 1
+        try:
+            if game.errors:
+                raise ValueError("запись содержит недопустимые ходы")
+            board = game.board()
+            if type(board) is not chess.Board or board.chess960:
+                raise ValueError("поддерживаются только обычные шахматы")
+            if not board.is_valid():
+                raise ValueError("некорректная начальная позиция")
+            if game.headers.get("Result") not in {"1-0", "0-1", "1/2-1/2"}:
+                raise ValueError("нужна завершённая партия")
+            moves = list(game.mainline_moves())
+            if not moves:
+                raise ValueError("в партии нет ходов")
+            if len(moves) > max_plies:
+                raise ValueError(f"более {max_plies} полуходов")
+            for move in moves:
+                if move not in board.legal_moves:
+                    raise ValueError("в партии есть недопустимый ход")
+                board.push(move)
+            site = game.headers.get("Link") or game.headers.get("Site", "")
+            parsed = urlparse(site)
+            if parsed.scheme != "https" or parsed.hostname not in {"lichess.org", "www.lichess.org", "chess.com", "www.chess.com"}:
+                site = ""
+            result.append({
+                "white": game.headers.get("White", "Неизвестный"),
+                "black": game.headers.get("Black", "Неизвестный"),
+                "result": game.headers.get("Result"),
+                "date": game.headers.get("UTCDate") or game.headers.get("Date", ""),
+                "event": game.headers.get("Event", ""),
+                "game_url": site,
+                "initial_fen": game.board().fen(),
+                "moves": [move.uci() for move in moves],
+                "pgn": game.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False)),
+            })
+        except (ValueError, TypeError) as exc:
+            notices.append(f"Партия {read_count} пропущена: {exc}.")
+    if stream.read().strip():
+        notices.append(f"Обработаны первые {max_games} записей PGN.")
+    if not result:
+        raise ValueError(notices[0] if notices else "В PGN не найдены завершённые партии.")
+    return result
+
+
+def position_at(game: dict, ply: int) -> chess.Board:
+    """Rebuild position before a zero-based ply without losing game state."""
+    moves = game.get("moves", [])
+    if not isinstance(ply, int) or isinstance(ply, bool) or not 0 <= ply < len(moves):
+        raise ValueError("Номер хода вне партии.")
+    board = chess.Board(game["initial_fen"])
+    if not board.is_valid():
+        raise ValueError("Некорректная начальная позиция.")
+    for uci in moves[:ply]:
+        board.push_uci(uci)
+    return board
+
+
+def _probe(engine, board, nodes, max_time, *, multipv=1, root_moves=None):
+    info = engine.analyse(board, chess.engine.Limit(nodes=max(1, int(nodes)), time=max_time),
+                          multipv=multipv, root_moves=root_moves,
+                          info=chess.engine.INFO_SCORE | chess.engine.INFO_PV | chess.engine.INFO_BASIC)
+    return info if isinstance(info, list) else [info]
+
+
+def _score(info, color):
+    score = info["score"].pov(color)
+    value = score.score(mate_score=10_000)
+    return int(value if value is not None else 0), score.mate()
+
+
+def _loss(best, played):
+    # Faster mate is not a missed winning opportunity; surviving a little longer
+    # in an unavoidable mate is not a tactical improvement worth presenting.
+    if best[1] is not None and played[1] is not None and (best[1] > 0) == (played[1] > 0):
+        return 0
+    return max(0, best[0] - played[0])
+
+
+def _pv_move(info, board):
+    pv = info.get("pv", [])
+    return pv[0] if pv and pv[0] in board.legal_moves else None
+
+
+def _mates(board, move):
+    probe = board.copy(stack=False)
+    probe.push(move)
+    return probe.is_checkmate()
+
+
+def _unique_tactical_choice(board, infos, min_depth=0):
+    if not infos or (move := _pv_move(infos[0], board)) is None:
+        return False
+    if _mates(board, move):
+        # The trainer already accepts any legal immediate checkmate.
+        return True
+    if infos[0].get("depth", 0) < min_depth:
+        return False
+    first, mate = _score(infos[0], board.turn)
+    if first < 120:
+        return False
+    if len(infos) < 2:
+        return board.legal_moves.count() == 1
+    if infos[1].get("depth", 0) < min_depth:
+        return False
+    second, second_mate = _score(infos[1], board.turn)
+    if mate is not None and mate > 0:
+        return second_mate is None or second_mate <= 0
+    # Keep puzzles with a clearly superior winning move; do not reject another
+    # already-winning line merely because Stockfish prefers one by a few pawns.
+    return first - second >= 160 and second < 120
+
+
+def _material(board, color):
+    return sum(value * (len(board.pieces(piece, color)) - len(board.pieces(piece, not color)))
+               for piece, value in VALUES.items())
+
+
+def _move_themes(before, move, after):
+    color = before.turn
+    enemy = not color
+    themes = set()
+    if move.promotion:
+        themes.add("promotion")
+        if move.promotion != chess.QUEEN:
+            themes.add("underPromotion")
+    captured_square = move.to_square
+    if before.is_en_passant(move):
+        captured_square += -8 if color == chess.WHITE else 8
+    if before.is_capture(move) and not before.attackers(enemy, captured_square):
+        themes.add("hangingPiece")
+    targets = [square for square in after.attacks(move.to_square)
+               if (piece := after.piece_at(square)) and piece.color == enemy
+               and piece.piece_type in {chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING}]
+    if len(targets) >= 2 and not after.is_checkmate():
+        themes.add("fork")
+    if after.is_check() and len(after.checkers()) > 1:
+        themes.add("doubleCheck")
+    for square, piece in after.piece_map().items():
+        if piece.color == enemy and piece.piece_type != chess.KING and after.is_pinned(enemy, square) and not before.is_pinned(enemy, square):
+            themes.add("pin")
+        if piece.color == color and square != move.to_square and piece.piece_type in {chess.BISHOP, chess.ROOK, chess.QUEEN}:
+            new_attacks = after.attacks(square) & ~before.attacks(square)
+            if any((target := after.piece_at(target_square)) and target.color == enemy
+                   and target.piece_type in {chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING}
+                   for target_square in new_attacks):
+                themes.add("discoveredAttack")
+    if after.is_checkmate():
+        king = after.king(enemy)
+        checking = after.piece_at(move.to_square)
+        if king is not None and checking and checking.piece_type in {chess.ROOK, chess.QUEEN} and chess.square_rank(king) in {0, 7} and chess.square_rank(king) == chess.square_rank(move.to_square):
+            escape_rank = 1 if chess.square_rank(king) == 0 else 6
+            if any((blocker := after.piece_at(chess.square(file, escape_rank))) and blocker.color == enemy
+                   for file in range(max(0, chess.square_file(king) - 1), min(7, chess.square_file(king) + 1) + 1)):
+                themes.add("backRankMate")
+    return themes
+
+
+def _build_puzzle(game, ply, start, root_infos, engine, verify_nodes, max_time):
+    if ply < 1 or not _unique_tactical_choice(start, root_infos, min_depth=10):
+        return None
+    learner = start.turn
+    board = start.copy(stack=False)
+    initial_material = _material(board, learner)
+    line = []
+    themes = set()
+    cached = {start.fen(): root_infos}
+    must_mate = (_score(root_infos[0], learner)[1] or 0) > 0
+
+    def probe(position):
+        # Endpoint checks look one reply ahead. Reuse those same searches when
+        # the lesson needs to continue instead of paying for them twice.
+        key = position.fen()
+        if key not in cached:
+            cached[key] = _probe(engine, position, verify_nodes, max_time,
+                                 multipv=2 if position.turn == learner else 1)
+        return cached[key]
+
+    complete = False
+    for offset in range(7):
+        learner_turn = board.turn == learner
+        infos = probe(board)
+        if learner_turn and not _unique_tactical_choice(board, infos, min_depth=10):
+            return None
+        if not infos or (move := _pv_move(infos[0], board)) is None:
+            return None
+        must_mate |= (_score(infos[0], learner)[1] or 0) > 0
+        before = board.copy(stack=False)
+        board.push(move)
+        line.append(move.uci())
+        if learner_turn:
+            themes.update(_move_themes(before, move, board))
+        if board.is_game_over():
+            complete = board.is_checkmate() and learner_turn
+            break
+        if learner_turn and not must_mate and _material(board, learner) - initial_material >= 100:
+            # A temporary capture followed by an immediate recapture is not the
+            # endpoint of a lesson. Check the engine's strongest reply first.
+            reply_infos = probe(board)
+            reply = _pv_move(reply_infos[0], board) if reply_infos else None
+            after_reply = board.copy(stack=False)
+            if reply:
+                after_reply.push(reply)
+                score, mate = _score(reply_infos[0], learner)
+                must_mate |= (mate or 0) > 0
+                if (_material(after_reply, learner) - initial_material >= 100
+                        and score >= 120 and mate is None
+                        and reply_infos[0].get("depth", 0) >= 10
+                        and not after_reply.is_game_over()):
+                    followup = probe(after_reply)
+                    # A nominal material gain can still require the next exact
+                    # move (e.g. ...Bxc3+ Kxc3 ...axb5). End only after the gain
+                    # is stable with multiple similarly good continuations.
+                    expected = min(2, after_reply.legal_moves.count())
+                    sufficiently_searched = (len(followup) >= expected and
+                        all(item.get("depth", 0) >= 10 and _pv_move(item, after_reply)
+                            for item in followup[:expected]))
+                    if sufficiently_searched:
+                        next_score, next_mate = _score(followup[0], learner)
+                        must_mate |= (next_mate or 0) > 0
+                        alternative_score, alternative_mate = (_score(followup[1], learner)
+                            if len(followup) >= 2 else (0, None))
+                        # Do not negate _unique_tactical_choice here: its
+                        # exclusion of another already-winning move would let
+                        # a nominal +1.3 alternative hide an essential +4 move.
+                        if (next_score >= 120 and next_mate is None
+                                and alternative_score >= 120 and alternative_mate is None
+                                and next_score - alternative_score < 120):
+                            complete = True
+                            break
+    if not complete or not line or len(line) % 2 != 1:
+        return None
+    first = chess.Move.from_uci(line[0])
+    if not start.is_capture(first) and not start.gives_check(first):
+        themes.add("quietMove")
+    if start.is_check():
+        themes.add("defensiveMove")
+    if board.is_checkmate():
+        count = (len(line) + 1) // 2
+        if count <= 3:
+            themes.add(f"mateIn{count}")
+    if not themes:
+        return None
+    previous = position_at(game, ply - 1)
+    predecessor = game["moves"][ply - 1]
+    test = previous.copy(stack=False)
+    test.push_uci(predecessor)
+    if test.fen() != start.fen():
+        return None
+    # This is a heuristic estimate until enough users have solved the puzzle.
+    rating = min(2300, 700 + 200 * ((len(line) + 1) // 2) + (150 if "quietMove" in themes else 0))
+    return {"initial_fen": previous.fen(), "moves": [predecessor, *line], "themes": sorted(themes), "rating": rating}
+
+
+def analyse_position(game: dict, ply: int, engine, *, min_loss_cp: int = 120,
+                     quick_nodes: int = 12_000, verify_nodes: int = 80_000,
+                     max_time: float = 0.6, require_mistake: bool = True) -> dict | None:
+    """Find one improvement; attach a task only after conservative verification.
+
+    Set require_mistake=False for public-game mining, including tactics a player
+    actually found. For personal Chess.com review leave it True and restrict the
+    analysed plies to that player's side in the caller.
+    """
+    if min_loss_cp < 0 or max_time <= 0:
+        raise ValueError("Некорректные параметры анализа.")
+    board = position_at(game, ply)
+    if board.is_game_over():
+        return None
+    played = chess.Move.from_uci(game["moves"][ply])
+    if played not in board.legal_moves:
+        raise ValueError("Недопустимый ход в партии.")
+    color = board.turn
+    quick = _probe(engine, board, quick_nodes, min(max_time, 0.2), multipv=2)
+    if not quick or (quick_best := _pv_move(quick[0], board)) is None:
+        return None
+    if require_mistake and quick_best == played:
+        return None
+    if not require_mistake and not _unique_tactical_choice(board, quick):
+        return None
+    quick_played = next((item for item in quick if _pv_move(item, board) == played), None)
+    if quick_played is None:
+        quick_played = _probe(engine, board, quick_nodes, min(max_time, 0.2), root_moves=[played])[0]
+    if require_mistake and _loss(_score(quick[0], color), _score(quick_played, color)) < min_loss_cp:
+        return None
+    verified = _probe(engine, board, verify_nodes, max_time, multipv=2)
+    if not verified or (best := _pv_move(verified[0], board)) is None:
+        return None
+    played_info = next((item for item in verified if _pv_move(item, board) == played), None)
+    if played_info is None:
+        played_info = _probe(engine, board, verify_nodes, max_time, root_moves=[played])[0]
+    best_score, played_score = _score(verified[0], color), _score(played_info, color)
+    loss = _loss(best_score, played_score)
+    if require_mistake and (best == played or loss < min_loss_cp):
+        return None
+    stable = best == quick_best and (verified[0].get("depth", 0) >= 10 or _mates(board, best))
+    puzzle = _build_puzzle(game, ply, board, verified, engine, verify_nodes, max_time) if stable else None
+    if not require_mistake and puzzle is None:
+        return None
+    best_line_san = []
+    probe = board.copy(stack=False)
+    for move in verified[0].get("pv", [])[:7]:
+        if move not in probe.legal_moves:
+            break
+        best_line_san.append(probe.san(move))
+        probe.push(move)
+    non_pawns = sum(1 for piece in board.piece_map().values() if piece.piece_type not in {chess.PAWN, chess.KING})
+    phase = "endgame" if len(board.piece_map()) <= 12 or (not board.queens and non_pawns <= 6) else "opening" if board.fullmove_number <= 10 else "middlegame"
+    return {
+        "phase": phase,
+        "ply": ply, "move_number": board.fullmove_number,
+        "side": "white" if color else "black", "before_fen": board.fen(),
+        "played_uci": played.uci(), "played_san": board.san(played),
+        "best_uci": best.uci(), "best_san": board.san(best), "best_line_san": best_line_san,
+        "loss_cp": loss, "score_before": best_score[0], "score_after": played_score[0],
+        "mate_before": best_score[1], "mate_after": played_score[1], "puzzle": puzzle,
+        "explanation": ("Найдена проверенная тактическая возможность." if puzzle else
+                        "Найдено улучшение, но короткий однозначный тактический вариант не подтверждён."),
+    }

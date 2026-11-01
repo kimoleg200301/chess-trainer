@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Download, Flame, GraduationCap, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Download, Flame, GraduationCap, Library, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import ChessBoard from './ChessBoard';
 import TrainingSetup from './TrainingSetup';
+import GameLibrary from './GameLibrary';
 import { useAttemptTimer } from './useAttemptTimer';
 import { useScreenWakeLock } from './useScreenWakeLock';
 import { formatDuration } from './time';
@@ -11,6 +12,7 @@ import { api, ApiError } from './api';
 import type { Analysis, Attempt, Meta, Reveal, Stats } from './api';
 
 const fmt = new Intl.NumberFormat('ru-RU');
+const puzzleLabel = (id: string) => id.length > 10 ? id.slice(0, 8) : id;
 const themeFallback: Record<string, string> = { fork: 'Вилка', pin: 'Связка', skewer: 'Сквозное нападение', discoveredAttack: 'Вскрытое нападение', deflection: 'Отвлечение', attraction: 'Завлечение', sacrifice: 'Жертва', mate: 'Мат', mateIn1: 'Мат в один ход', mateIn2: 'Мат в два хода', backRankMate: 'Мат по последней горизонтали', hangingPiece: 'Незащищённая фигура', crushing: 'Решающее преимущество', advantage: 'Преимущество', middlegame: 'Миттельшпиль', endgame: 'Эндшпиль', opening: 'Дебют', short: 'Короткий вариант', long: 'Длинный вариант', veryLong: 'Длинный вариант', quietMove: 'Тихий ход', defensiveMove: 'Защитный ход', intermezzo: 'Промежуточный ход' };
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Что-то пошло не так. Попробуйте ещё раз.';
 
@@ -76,14 +78,20 @@ function StatsPage({ stats, busy, refresh }: { stats: Stats | null; busy: boolea
         { icon: <Clock3 />, value: formatDuration(stats.average_solution_ms), name: 'Среднее время', detail: stats.timed_solutions ? `Решений с замером: ${fmt.format(stats.timed_solutions)}` : 'Появится после решения с таймером' },
       ].map(card => <div className="stat-card" key={card.name}><span>{card.icon}</span><strong>{card.value}</strong><h3>{card.name}</h3><p>{card.detail}</p></div>)}</div>
       <div className="stats-columns"><section className="panel"><div className="panel-title"><h2>Тактические мотивы</h2><GraduationCap size={19} /></div>{!stats.by_theme.length ? <Empty icon={<Target />} title="Первый шаг впереди">Решите несколько задач, чтобы увидеть результаты по мотивам.</Empty> : <div className="theme-stats">{stats.by_theme.map(theme => <div className="theme-stat" key={theme.id}><div><span>{theme.name || themeFallback[theme.id] || theme.id}</span><small>{theme.solved} / {theme.attempts}</small></div><div className="progress-track"><span style={{ width: `${theme.attempts ? Math.min(100, theme.solved / theme.attempts * 100) : 0}%` }} /></div></div>)}</div>}</section>
-        <section className="panel"><div className="panel-title"><h2>Последние позиции</h2><span className="subtle-count">{fmt.format(stats.total_attempts)} попыток</span></div>{!stats.recent.length ? <Empty icon={<Sparkles />} title="Начните свою историю">Каждая разобранная позиция останется в истории практики.</Empty> : <div className="recent-list">{stats.recent.map((item, index) => <div className="recent-item" key={`${item.puzzle_id}-${index}`}><span className={`recent-icon ${item.status === 'completed' ? 'success' : ''}`}>{item.status === 'completed' ? <Check size={18} /> : item.status === 'revealed' ? <CircleHelp size={18} /> : <Target size={18} />}</span><div><strong>Позиция #{item.puzzle_id}</strong><small>Рейтинг {item.rating} · {new Date(item.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</small></div><div className="recent-outcome"><span className="recent-status">{item.status === 'completed' ? 'Решена' : item.status === 'revealed' ? 'Разобрана' : 'В процессе'}</span><span className="recent-time" aria-label={item.elapsed_ms == null ? 'Время не измерялось' : `Время на позицию ${formatDuration(item.elapsed_ms)}`}><Clock3 size={12} />{formatDuration(item.elapsed_ms)}</span></div></div>)}</div>}</section></div>
+        <section className="panel"><div className="panel-title"><h2>Последние позиции</h2><span className="subtle-count">{fmt.format(stats.total_attempts)} попыток</span></div>{!stats.recent.length ? <Empty icon={<Sparkles />} title="Начните свою историю">Каждая разобранная позиция останется в истории практики.</Empty> : <div className="recent-list">{stats.recent.map((item, index) => <div className="recent-item" key={`${item.puzzle_id}-${index}`}><span className={`recent-icon ${item.status === 'completed' ? 'success' : ''}`}>{item.status === 'completed' ? <Check size={18} /> : item.status === 'revealed' ? <CircleHelp size={18} /> : <Target size={18} />}</span><div><strong title={item.puzzle_id}>Позиция #{puzzleLabel(item.puzzle_id)}</strong><small>Рейтинг {item.rating_estimated ? '≈ ' : ''}{item.rating} · {new Date(item.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</small></div><div className="recent-outcome"><span className="recent-status">{item.status === 'completed' ? 'Решена' : item.status === 'revealed' ? 'Разобрана' : 'В процессе'}</span><span className="recent-time" aria-label={item.elapsed_ms == null ? 'Время не измерялось' : `Время на позицию ${formatDuration(item.elapsed_ms)}`}><Clock3 size={12} />{formatDuration(item.elapsed_ms)}</span></div></div>)}</div>}</section></div>
       <p className="stats-note">Точность считается по завершённым попыткам. Решение с подсказкой, ошибкой или просмотром ответа не считается чистым.</p>
       <p className="stats-note timing-note">Среднее время учитывает только решённые задачи с замером. Паузы и ожидание ответа сервера не учитываются.</p>
     </>}
   </section>;
 }
 
-function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { meta: Meta | null; stats: Stats | null; onChanged: () => void; visible: boolean; screen: 'setup' | 'session'; onScreenChange: (screen: 'setup' | 'session') => void }) {
+type PracticeLaunch = { token: number; puzzleId: string; collection: string };
+function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, collection, onCollectionChange, launch, onLaunchHandled }: {
+  meta: Meta | null; stats: Stats | null; onChanged: () => void; visible: boolean;
+  screen: 'setup' | 'session'; onScreenChange: (screen: 'setup' | 'session') => void;
+  collection: string; onCollectionChange: (collection: string) => void;
+  launch: PracticeLaunch | null; onLaunchHandled: () => void;
+}) {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [theme, setTheme] = useState('');
   const [minRating, setMinRating] = useState(800);
@@ -130,6 +138,9 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { if (!visible || screen !== 'session') setReplayPlaying(false); }, [visible, screen]);
   useEffect(() => {
+    if (meta && theme && !meta.themes.some(item => item.id === theme)) setTheme('');
+  }, [meta, theme]);
+  useEffect(() => {
     if (visible && screen === 'session') {
       window.scrollTo({ top: 0, behavior: 'instant' });
       sessionBack.current?.focus({ preventScroll: true });
@@ -157,14 +168,20 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
     return { ...attempt, fen: board.fen(), last_move: replayIndex ? reveal.solution[replayIndex - 1].uci : null };
   }, [attempt, reveal, initialFen, replayIndex, playback]);
 
-  async function start(newSession = false) {
+  useEffect(() => {
+    if (!launch || !visible) return;
+    void start(true, launch.puzzleId, launch.collection).finally(onLaunchHandled);
+  }, [launch, visible]);
+
+  async function start(newSession = false, puzzleId?: string, source = collection) {
     if (actionPending.current || analysisBusy) return;
-    if (minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
+    if (!puzzleId && minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
     actionPending.current = true;
     timer.pause();
+    if (puzzleId) { setTheme(''); setMode('practice'); }
     setShowSkip(false); setReplayPlaying(false); setBusy(true); setError('');
     try {
-      const data = await api<Attempt>('/training/start', { theme: theme || null, min_rating: minRating, max_rating: maxRating, mode });
+      const data = await api<Attempt>('/training/start', { theme: puzzleId ? null : theme || null, min_rating: minRating, max_rating: maxRating, mode: puzzleId ? 'practice' : mode, collection: source, ...(puzzleId ? { puzzle_id: puzzleId } : {}) });
       if (!mounted.current) return;
       setAttempt(data); setInitialFen(data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null); setTimeSaveFailed(false);
       if (newSession) setSessionSolved(0);
@@ -245,6 +262,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
   }
   if (screen === 'setup' || !attempt) return <TrainingSetup
     meta={meta} stats={stats} theme={theme} onThemeChange={setTheme}
+    collection={collection} onCollectionChange={value => { setTheme(''); onCollectionChange(value); }}
     minRating={minRating} maxRating={maxRating} onMinRatingChange={setMinRating} onMaxRatingChange={setMaxRating}
     mode={mode} onModeChange={setMode} busy={busy || analysisBusy} error={error} onDismissError={() => setError('')}
     onStart={() => void start(true)} sessionSolved={sessionSolved}
@@ -253,7 +271,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
   return <section className="training-session" aria-label="Решение позиции">
     <div className={`board-column ${attempt.status === 'completed' ? 'board-solved' : ''}`}>
       <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Активное время решения. Паузы и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
-      <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${attempt.puzzle_id} · ${attempt.rating}` : 'Выберите параметры справа'}</span></div>
+      <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${puzzleLabel(attempt.puzzle_id)} · ${attempt.rating_estimated ? '≈ ' : ''}${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
         <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>
         <div><strong>{statusTitle}</strong><p>{statusDetail}</p></div>
@@ -279,7 +297,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
       {done && <div className="session-details">
         {(attempt.mistakes > 0 || attempt.hints_used > 0) && <p className="attempt-meta">Ошибок: {attempt.mistakes} · Подсказок: {attempt.hints_used}</p>}
         <div className="theme-tags">{attempt.themes.filter(id => !['short', 'long', 'veryLong', 'oneMove'].includes(id) && label(id) !== id).slice(0, 5).map(id => <span key={id}>{label(id)}</span>)}</div>
-        {reveal && /^https:\/\/lichess\.org\//.test(reveal.game_url) && <a className="source-link" href={reveal.game_url} target="_blank" rel="noreferrer">Посмотреть исходную партию <ChevronRight size={14} /></a>}
+        {reveal && /^https:\/\/(?:(?:www\.)?chess\.com|lichess\.org)\//.test(reveal.game_url) && <a className="source-link" href={reveal.game_url} target="_blank" rel="noreferrer">Посмотреть исходную партию <ChevronRight size={14} /></a>}
         {attempt.status === 'completed' && !analysis && <button className="analysis-button" disabled={busy || analysisBusy} onClick={getAnalysis}>{analysisBusy ? <Spinner /> : <Sparkles size={15} />}{analysisBusy ? 'Анализируем позицию…' : 'Проверить итоговую позицию'}</button>}
         {analysis && <div className="analysis-result"><div><span>{analysis.engine}</span><strong>{analysis.evaluation}</strong></div><p>{analysis.line.length ? analysis.line.join('  ') : 'Продолжение не требуется.'}</p></div>}
       </div>}
@@ -290,30 +308,44 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange }: { 
 export default function App() {
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'training' | 'stats'>('training');
+  const [tab, setTab] = useState<'training' | 'stats' | 'library'>('training');
   const [trainingScreen, setTrainingScreen] = useState<'setup' | 'session'>('setup');
   const inSession = tab === 'training' && trainingScreen === 'session';
+  const [collection, setCollection] = useState('lichess');
+  const [practiceLaunch, setPracticeLaunch] = useState<PracticeLaunch | null>(null);
+  const catalogVersion = useRef(0);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState('');
   const [statsBusy, setStatsBusy] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
-  const refreshCatalog = useCallback(async () => { setCatalogBusy(true); setError(''); try { setMeta(await api<Meta>('/meta')); } catch (err) { setError(errorText(err)); } finally { setCatalogBusy(false); } }, []);
+  const refreshCatalog = useCallback(async () => {
+    const version = ++catalogVersion.current;
+    setCatalogBusy(true); setError('');
+    try { const data = await api<Meta>(`/meta?collection=${encodeURIComponent(collection)}`); if (version === catalogVersion.current) setMeta(data); }
+    catch (err) { if (version === catalogVersion.current) setError(errorText(err)); }
+    finally { if (version === catalogVersion.current) setCatalogBusy(false); }
+  }, [collection]);
+  const changeCollection = (value: string) => { if (value !== collection) { catalogVersion.current++; setMeta(null); setCollection(value); } };
+  function practicePuzzle(puzzleId: string, source: string) {
+    changeCollection(source); setTrainingScreen('setup'); setTab('training');
+    setPracticeLaunch({ token: Date.now(), puzzleId, collection: source });
+  }
   const refreshStats = useCallback(async () => { setStatsBusy(true); try { setStats(await api<Stats>('/stats')); } catch (err) { setError(errorText(err)); } finally { setStatsBusy(false); } }, []);
   useEffect(() => {
     let active = true;
     api<{ username: string }>('/auth/me').then(data => { if (active) setUser(data.username); }).catch(err => { if (active && !(err instanceof ApiError && err.status === 401)) setError(errorText(err)); }).finally(() => { if (active) setLoading(false); });
-    const expired = () => { setUser(null); setMeta(null); setStats(null); setTrainingScreen('setup'); };
+    const expired = () => { setUser(null); setMeta(null); setStats(null); setTrainingScreen('setup'); setPracticeLaunch(null); setCollection('lichess'); catalogVersion.current++; };
     window.addEventListener('session-expired', expired);
     return () => { active = false; window.removeEventListener('session-expired', expired); };
   }, []);
   useEffect(() => { if (user) { void refreshCatalog(); void refreshStats(); } }, [user, refreshStats, refreshCatalog]);
-  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); setUser(null); setMeta(null); setStats(null); setError(''); setTrainingScreen('setup'); setTab('training'); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
+  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); catalogVersion.current++; setCollection('lichess'); setUser(null); setMeta(null); setStats(null); setError(''); setTrainingScreen('setup'); setTab('training'); setPracticeLaunch(null); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
   if (loading) return <div className="app-loading"><Brand subtitle /><Spinner /><p>Готовим доску…</p></div>;
-  if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); setTrainingScreen('setup'); setTab('training'); }} />;
-  return <div className={`app-shell ${inSession ? 'session-shell' : ''}`}>{!inSession && <header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — главная"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Главная</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button></nav><div className="account"><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>}
-    <main className="main-content">{error && <ErrorNotice message={error} close={() => setError('')} />}{!meta && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}><Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} screen={trainingScreen} onScreenChange={setTrainingScreen} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}</main>
-    {!inSession && <footer className="footer"><span>тактика<span className="brand-dot">.</span> <span className="footer-separator">/</span> Практика, которая остаётся с вами.</span><span><a href="https://database.lichess.org/#puzzles" target="_blank" rel="noreferrer">Позиции Lichess · CC0</a><span className="footer-separator">·</span><a href="/pieces/NOTICE.txt" target="_blank" rel="noreferrer">Фигуры</a></span></footer>}
+  if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); setTrainingScreen('setup'); setTab('training'); setPracticeLaunch(null); }} />;
+  return <div className={`app-shell ${inSession ? 'session-shell' : ''}`}>{!inSession && <header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — главная"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Главная</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button><button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}><Library size={16} />Мои партии</button></nav><div className="account"><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>}
+    <main className="main-content">{error && <ErrorNotice message={error} close={() => setError('')} />}{!meta && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}><Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} screen={trainingScreen} onScreenChange={setTrainingScreen} collection={collection} onCollectionChange={changeCollection} launch={practiceLaunch} onLaunchHandled={() => setPracticeLaunch(null)} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}<div hidden={tab !== 'library'}><GameLibrary visible={tab === 'library'} onChanged={refreshCatalog} onPractice={practicePuzzle} /></div></main>
+    {!inSession && <footer className="footer"><span>тактика<span className="brand-dot">.</span> <span className="footer-separator">/</span> Практика, которая остаётся с вами.</span><span><a href="https://database.lichess.org/#puzzles" target="_blank" rel="noreferrer">Открытая база Lichess · CC0</a><span className="footer-separator">·</span><a href="/pieces/NOTICE.txt" target="_blank" rel="noreferrer">Фигуры</a></span></footer>}
   </div>;
 }

@@ -131,3 +131,7 @@
   .setup-resume .button { font-size: 10px; padding: 9px; gap: 6px; }
   .setup-summary { font-size: 10px; gap: 8px 18px; margin-top: 19px; }
 }
+
+.training-setup .collection-description { font-size: 11px; line-height: 1.75; color: #7e8b77; margin: 9px 0 20px; }
+.training-setup .collection-empty { font-size: 11px; line-height: 1.75; padding: 10px 12px; border: 1px solid #e7dfc7; border-radius: 8px; background: #faf7ee; color: #887450; margin: -5px 0 18px; }
+.training-setup .collection-rating-note { font-size: 10px; line-height: 1.7; color: #8b987f; margin-top: 10px; }

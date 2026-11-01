@@ -117,3 +117,11 @@
   .session-metrics { gap: 8px; font-size: 10px; }
   .attempt-timer { padding: 6px 7px; font-size: 12px; }
 }
+
+@media (max-width: 650px) {
+  .header-inner { gap: 8px; padding: 0 12px; }
+  .header nav { gap: 0; flex: 1; }
+  .header nav button { padding: 10px 8px; font-size: 10px; gap: 4px; }
+  .header .account .avatar { display: none; }
+  .header .account { margin-left: auto; }
+}

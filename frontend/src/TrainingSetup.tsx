@@ -6,6 +6,8 @@ import './training-setup.css';
 export type TrainingSetupProps = {
   meta: Meta | null;
   stats: Stats | null;
+  collection: string;
+  onCollectionChange: (value: string) => void;
   theme: string;
   onThemeChange: (value: string) => void;
   minRating: number;
@@ -30,7 +32,7 @@ const presets = [
 ];
 
 export default function TrainingSetup({
-  meta, stats, theme, onThemeChange, minRating, maxRating, onMinRatingChange,
+  meta, stats, collection, onCollectionChange, theme, onThemeChange, minRating, maxRating, onMinRatingChange,
   onMaxRatingChange, mode, onModeChange, busy, error, onDismissError, onStart,
   onResume, sessionSolved,
 }: TrainingSetupProps) {
@@ -55,6 +57,12 @@ export default function TrainingSetup({
           <button type="button" aria-pressed={mode === 'practice'} className={mode === 'practice' ? 'active' : ''} onClick={() => onModeChange('practice')}><Target size={16} />Практика</button>
           <button type="button" aria-pressed={mode === 'review'} className={mode === 'review' ? 'active' : ''} onClick={() => onModeChange('review')}><RotateCcw size={16} />Повторение{(stats?.due_count || 0) > 0 && <span className="count-badge">{stats?.due_count}</span>}</button>
         </div>
+        <label className="field-label" htmlFor="collection">База задач</label>
+        <select id="collection" value={collection} onChange={event => onCollectionChange(event.target.value)} disabled={busy || !meta}>
+          {(meta?.collections || [{ id: 'lichess', name: 'Lichess', count: 0 }, { id: 'public', name: 'Открытые партии', count: 0 }, { id: 'personal', name: 'Мои задачи', count: 0 }, { id: 'all', name: 'Все доступные', count: 0 }]).map(item => <option key={item.id} value={item.id}>{item.name} ({fmt.format(item.count)})</option>)}
+        </select>
+        <p className="collection-description">{collection === 'personal' ? 'Задачи, которые вы сохранили из своих партий Chess.com.' : collection === 'public' ? 'Тактические моменты из реальных партий, проверенные Stockfish.' : collection === 'all' ? 'Задачи Lichess, открытые партии и ваша личная коллекция.' : 'Готовые задачи Lichess с рейтингом по результатам решений.'}</p>
+        {meta?.total_puzzles === 0 && <p className="collection-empty">В этой базе пока нет задач. Добавьте их в разделе «Мои партии» или выберите другую базу.</p>}
         <label className="field-label" htmlFor="theme">Тактический мотив</label>
         <select id="theme" value={theme} onChange={event => onThemeChange(event.target.value)} disabled={!meta || busy}>
           <option value="">Смешанные задачи</option>
@@ -68,6 +76,7 @@ export default function TrainingSetup({
           <label><span>До</span><input aria-label="Верхняя граница рейтинга" type="number" min="0" max="4000" step="1" value={maxRating} onChange={event => onMaxRatingChange(Number(event.target.value))} required /></label>
         </div>
         <div className="difficulty-presets" role="group" aria-label="Уровень сложности">{presets.map(preset => <button type="button" key={preset.label} aria-pressed={minRating === preset.min && maxRating === preset.max} className={minRating === preset.min && maxRating === preset.max ? 'selected-preset' : ''} onClick={() => { onMinRatingChange(preset.min); onMaxRatingChange(preset.max); }}>{preset.label}</button>)}</div>
+        {collection !== 'lichess' && <p className="collection-rating-note">Сложность задач, созданных из партий, оценивается приблизительно.</p>}
       </fieldset>
 
       {error && <div className="error-notice" role="alert"><span>{error}</span><button type="button" aria-label="Закрыть сообщение" onClick={onDismissError}><X size={16} /></button></div>}
@@ -75,7 +84,7 @@ export default function TrainingSetup({
         <span>{onResume ? 'Начать новую тренировку' : 'Начать тренировку'}</span>
         {busy ? <LoaderCircle size={18} className="spinner" aria-hidden="true" /> : <ArrowRight size={18} />}
       </button>
-      <p className="settings-footnote">{mode === 'review' ? 'Задачи для закрепления знакомых мотивов. Выбранные фильтры применяются и к повторению.' : meta ? `${fmt.format(meta.total_puzzles)} позиций из реальных партий. В своём темпе, без таймера.` : 'Загружаем библиотеку задач…'}</p>
+      <p className="settings-footnote">{mode === 'review' ? 'Задачи для закрепления знакомых мотивов. Выбранные фильтры применяются и к повторению.' : meta ? `${fmt.format(meta.total_puzzles)} позиций в выбранной базе. Решайте в своём темпе.` : 'Загружаем библиотеку задач…'}</p>
     </form>
 
     {(stats || sessionSolved > 0) && <div className="setup-summary">

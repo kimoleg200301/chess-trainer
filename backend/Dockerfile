@@ -11,7 +11,7 @@ COPY backend/app ./app
 COPY backend/alembic.ini ./
 COPY backend/migrations ./migrations
 COPY backend/start.sh ./start.sh
-COPY data/puzzles.csv ./data/puzzles.csv
+COPY data/puzzles.csv data/public-games.pgn data/generated-puzzles.json ./data/
 ENV DATA_PATH=/app/data/puzzles.csv STOCKFISH_PATH=/usr/games/stockfish
 RUN useradd --create-home --uid 10001 app && chmod +x /app/start.sh && chown -R app:app /app
 USER app

@@ -4,7 +4,7 @@ from pathlib import Path
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, delete, select, text, update
 from sqlalchemy.engine import make_url
 
 
@@ -36,7 +36,11 @@ def database(tmp_path_factory):
     command.upgrade(Config("alembic.ini"), "head")
     from app.bootstrap import bootstrap
     bootstrap()
-    yield
+    from app.models import Puzzle
+    from sqlalchemy.orm import Session
+    with Session(engine()) as db:
+        seed_rows = db.execute(select(Puzzle.id, Puzzle.collection, Puzzle.rating_estimated)).all()
+    yield seed_rows
     engine().dispose()
     with raw.begin() as db:
         db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
@@ -48,7 +52,12 @@ def clean_training(database):
     from app.db import engine
     from app.security import login_limiter
     with engine().begin() as db:
-        db.execute(text("TRUNCATE attempts, reviews, login_sessions RESTART IDENTITY"))
+        db.execute(text("TRUNCATE improvements, imported_games, import_jobs, attempts, reviews, login_sessions RESTART IDENTITY"))
+        from app.models import Puzzle
+        db.execute(delete(Puzzle).where(Puzzle.id.not_in([row.id for row in database])))
+        for collection in {row.collection for row in database}:
+            ids = [row.id for row in database if row.collection == collection]
+            db.execute(update(Puzzle).where(Puzzle.id.in_(ids)).values(collection=collection, owner_id=None, rating_estimated=collection != "lichess"))
     login_limiter.entries.clear()
 
 
