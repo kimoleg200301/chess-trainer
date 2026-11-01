@@ -327,6 +327,9 @@ app.include_router(imports_router)
 from .game_analysis_api import router as game_analysis_router
 app.include_router(game_analysis_router)
 
+from .benchmark_api import router as benchmark_router
+app.include_router(benchmark_router)
+
 
 @app.api_route("/api/{unmatched:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
 def api_not_found(unmatched: str):

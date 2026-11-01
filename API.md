@@ -122,6 +122,16 @@ Side accuracy is the arithmetic mean of assessed non-forced move accuracies. `co
 
 Each checkpoint and completed report is stored in PostgreSQL independently of tactic-generation state. The client stops new steps on pause, navigation or a hidden tab and resumes only on request; an in-flight step may still save. No background worker continues analysis while the screen is closed.
 
+## Stockfish benchmark
+
+Authenticated diagnostics run the fixed `app` profile: Stockfish built-in `bench`, eight bundled positions, NNUE, MultiPV 2, one thread, 32 MiB hash, depth 13, three sequential repetitions. Each process has a 60-second timeout. These routes never modify games, puzzles, attempts or saved analyses.
+
+- `GET /api/diagnostics/stockfish-benchmark` -> profile and limits.
+- `POST /api/diagnostics/stockfish-benchmark` `{}` -> HTTP 202 with `{id,status,started_at,finished_at,profile,repetitions,result,error}`. Extra request fields are rejected. The job runs in a background thread; repeat starts by its owner return the same running job.
+- `GET /api/diagnostics/stockfish-benchmark/{id}` -> owned job status and, after completion, the report. Status is `running`, `completed` or `failed`. Errors use `{code,detail}` and may retain partial results.
+
+The benchmark holds the shared engine slot for the whole job. A busy engine or another user's running benchmark returns 503; a 30-second cooldown after completion returns 429. Polling does not start additional processes. Results are held in bounded memory for up to 30 minutes from job creation and disappear on application restart. Unknown or unowned jobs return 404. The CLI client saves the returned JSON for comparison; see [BENCHMARK.md](BENCHMARK.md).
+
 ## Portable progress
 `GET /api/progress/export` -> authenticated JSON attachment `{format_version:1|2,exported_at,username,attempts:[...],reviews:[...],generated_puzzles?:[...]}`. Contains only the current user's progress, no passwords/sessions. Pure Lichess exports retain version 1. Version 2 includes all owned personal puzzle definitions (including unplayed ones), plus generated public puzzles referenced by progress. These definitions contain solution moves so training remains portable. Optional `source_game_at`, `source_ply` and `created_at` preserve chronological practice order; earlier version-2 exports without those fields remain supported, with unknown game dates left null. Import jobs, their intermediate analysis and independent whole-game reports (including completed ones) are not included; use a full PostgreSQL backup for those.
 
