@@ -19,6 +19,7 @@ export type Analysis = { evaluation: string; line: string[]; engine: string };
 export type Reveal = { attempt: Attempt; solution: { uci: string; san: string }[]; game_url: string };
 
 export type ImportJobSummary = {
+  background_requested: boolean;
   id: number; source: 'public' | 'chesscom'; username: string | null; month: string | null;
   status: 'ready' | 'running' | 'completed' | 'failed'; total_games: number; completed_games: number;
   candidates_count: number; available_puzzles_count: number; puzzles_count: number;
@@ -70,6 +71,7 @@ export async function api<T>(path: string, body?: unknown, method?: string, opti
 
 export type GameMoveCategory = 'brilliant' | 'great' | 'best' | 'excellent' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' | 'forced' | 'unassessed';
 export type GameAnalysisSource = {
+  background_requested: boolean;
   id: number; white: string; black: string; result: string; date: string;
   game_url: string; source_game_at: string | null; username: string | null; total_plies: number;
   analysis_id: number | null; analysis_status: 'ready' | 'running' | 'completed' | 'failed' | null;
@@ -90,6 +92,7 @@ export type GameSideSummary = {
   coverage: number; complete: boolean; accuracy_complete: boolean;
 };
 export type GameAnalysisReport = {
+  background_requested: boolean;
   id: number; game_id: number; game: GameAnalysisSource & { initial_fen: string };
   status: 'ready' | 'running' | 'completed' | 'failed'; cursor: number; total_plies: number;
   analysis_version: number; analysis_outdated: boolean; error: string | null; created_at: string; updated_at: string;

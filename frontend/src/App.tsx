@@ -150,16 +150,40 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   }, [visible, screen]);
   useEffect(() => {
     if (!replayPlaying || !reveal || !visible || screen !== 'session') return;
-    if (replayIndex >= reveal.solution.length) { setReplayPlaying(false); return; }
-    const timer = window.setTimeout(() => setReplayIndex(index => index + 1), 950);
-    return () => window.clearTimeout(timer);
-  }, [replayPlaying, replayIndex, reveal, visible, screen]);
+    const startedAt = Date.now(), startIndex = replayIndex;
+    // Derive the position from elapsed time so throttled background callbacks
+    // catch up immediately, instead of playing one delayed move on each wakeup.
+    const advance = () => {
+      const index = Math.min(reveal.solution.length, startIndex + Math.max(0, Math.floor((Date.now() - startedAt) / 950)));
+      setReplayIndex(index);
+      if (index >= reveal.solution.length) setReplayPlaying(false);
+    };
+    const timer = window.setInterval(advance, 100);
+    document.addEventListener('visibilitychange', advance);
+    window.addEventListener('pageshow', advance);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', advance);
+      window.removeEventListener('pageshow', advance);
+    };
+    // The starting index is captured once for each explicit playback/resume.
+  }, [replayPlaying, reveal, visible, screen]);
   function seekReplay(index: number) { setReplayPlaying(false); setReplayIndex(index); }
   function toggleReplay() {
     if (reveal && replayIndex >= reveal.solution.length) setReplayIndex(0);
     setReplayPlaying(value => !value);
   }
-  const pause = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
+  const pause = (ms: number) => new Promise<void>(resolve => {
+    if (document.visibilityState !== 'visible') { resolve(); return; }
+    const finish = () => {
+      window.clearTimeout(timeout);
+      document.removeEventListener('visibilitychange', hidden);
+      resolve();
+    };
+    const hidden = () => { if (document.visibilityState !== 'visible') finish(); };
+    const timeout = window.setTimeout(finish, ms);
+    document.addEventListener('visibilitychange', hidden);
+  });
   const label = (id: string) => meta?.themes.find(item => item.id === id)?.name || themeFallback[id] || id;
   const done = !!attempt && attempt.status !== 'active';
   const boardAttempt = useMemo(() => {
@@ -287,7 +311,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   />;
   return <section className="training-session" aria-label="Решение позиции">
     <div className={`board-column ${attempt.status === 'completed' ? 'board-solved' : ''}`}>
-      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Активное время решения. Паузы и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
+      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Время решения, включая свёрнутый браузер. Настройки и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
       <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${puzzleLabel(attempt.puzzle_id)} · ${attempt.rating_estimated ? '≈ ' : ''}${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
         <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>

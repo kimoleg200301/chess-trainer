@@ -1,4 +1,6 @@
 from collections import Counter
+from contextlib import asynccontextmanager
+import asyncio
 from datetime import timedelta
 import os
 from typing import Literal
@@ -15,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, aliased
 
 from .collections import Collection, COLLECTION_NAMES, collection_filter, visible_puzzles
+from .background import AnalysisWorker
 from .config import settings
 from .db import get_db
 from .engine_resources import engine_slots
@@ -24,7 +27,18 @@ from .security import create_session, current_user, hash_password, login_limiter
 from .themes import THEMES
 from .training import attempt_view, finalize, get_attempt, play_move, record_elapsed, schedule_review, solution
 
-app = FastAPI(title="Tactics Lab API", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    worker = AnalysisWorker()
+    app.state.analysis_worker = worker
+    worker.start()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(worker.stop)
+
+
+app = FastAPI(title="Tactics Lab API", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 dummy_password_hash = hash_password("nonexistent-user-dummy-password")
 
 

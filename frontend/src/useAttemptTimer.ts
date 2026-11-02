@@ -22,7 +22,7 @@ const SAVE_INTERVAL = 15_000;
 const baseline = (value: number | null) => value !== null && Number.isFinite(value) ? Math.max(0, value) : 0;
 const read = (clock: Clock, now: number) => clock.accumulated + (clock.startedAt === null ? 0 : Math.max(0, now - clock.startedAt));
 
-/** Counts only visible, enabled solving time; requests and replay can pause it. */
+/** Wall-clock solving time, including a hidden/frozen tab; explicit pauses still apply. */
 export function useAttemptTimer({ attemptId, elapsedMs, running, onPersist }: TimerOptions) {
   const clock = useRef<Clock>({ id: attemptId, accumulated: baseline(elapsedMs), startedAt: null, tracked: false, acknowledgedMs: elapsedMs ?? -1, lastSentMs: -1, lastSentAt: 0, lastKeepalive: false });
   const persist = useRef(onPersist);
@@ -48,7 +48,7 @@ export function useAttemptTimer({ attemptId, elapsedMs, running, onPersist }: Ti
   }, []);
 
   const stop = useCallback((keepalive: boolean, force = false) => {
-    const now = performance.now();
+    const now = Date.now();
     const current = clock.current;
     current.accumulated = read(current, now);
     current.startedAt = null;
@@ -60,8 +60,8 @@ export function useAttemptTimer({ attemptId, elapsedMs, running, onPersist }: Ti
 
   const resume = useCallback(() => {
     const current = clock.current;
-    if (current.id === null || !enabled.current || pageSuspended.current || document.visibilityState !== 'visible' || current.startedAt !== null) return;
-    const now = performance.now();
+    if (current.id === null || !enabled.current || current.startedAt !== null) return;
+    const now = Date.now();
     current.startedAt = now;
     current.lastSentAt = now;
     current.tracked = true;
@@ -74,7 +74,7 @@ export function useAttemptTimer({ attemptId, elapsedMs, running, onPersist }: Ti
   });
 
   useLayoutEffect(() => {
-    const now = performance.now();
+    const now = Date.now();
     if (clock.current.id !== attemptId) {
       stop(false, true);
       clock.current = { id: attemptId, accumulated: baseline(elapsedMs), startedAt: null, tracked: false, acknowledgedMs: elapsedMs ?? -1, lastSentMs: -1, lastSentAt: now, lastKeepalive: false };
@@ -91,17 +91,21 @@ export function useAttemptTimer({ attemptId, elapsedMs, running, onPersist }: Ti
   }, [attemptId, elapsedMs, running, publish, resume, stop]);
 
   useEffect(() => {
-    const visibilityChanged = () => {
-      if (document.visibilityState === 'visible') resume();
-      else stop(true);
+    const refresh = (keepalive: boolean) => {
+      const now = Date.now();
+      publish(Math.floor(read(clock.current, now)));
+      save(keepalive, now);
     };
-    const pageHidden = () => { pageSuspended.current = true; stop(true); };
-    const pageShown = () => { pageSuspended.current = false; resume(); };
+    // Persist a checkpoint on hide without stopping the clock. Background
+    // intervals may be throttled or suspended entirely; elapsed time still grows.
+    const visibilityChanged = () => refresh(document.visibilityState !== 'visible');
+    const pageHidden = () => { pageSuspended.current = true; refresh(true); };
+    const pageShown = () => { pageSuspended.current = false; resume(); refresh(false); };
     document.addEventListener('visibilitychange', visibilityChanged);
     window.addEventListener('pagehide', pageHidden);
     window.addEventListener('pageshow', pageShown);
     const tick = window.setInterval(() => {
-      const now = performance.now();
+      const now = Date.now();
       const current = clock.current;
       if (current.startedAt === null) {
         // The callback has no acknowledgement return value. A newer server
@@ -109,8 +113,6 @@ export function useAttemptTimer({ attemptId, elapsedMs, running, onPersist }: Ti
         if (!pageSuspended.current && now - current.lastSentAt >= SAVE_INTERVAL) save(document.visibilityState !== 'visible', now);
         return;
       }
-      // Reconcile visibility even if a browser delayed its visibility event.
-      if (document.visibilityState !== 'visible') { stop(true); return; }
       publish(Math.floor(read(current, now)));
       if (now - current.lastSentAt >= SAVE_INTERVAL) save(false, now);
     }, 250);
@@ -124,7 +126,7 @@ export function useAttemptTimer({ attemptId, elapsedMs, running, onPersist }: Ti
     };
   }, [publish, resume, save, stop]);
 
-  const snapshot = useCallback(() => Math.floor(read(clock.current, performance.now())), []);
+  const snapshot = useCallback(() => Math.floor(read(clock.current, Date.now())), []);
   const pause = useCallback(() => stop(false, true), [stop]);
   return { elapsedMs: display, snapshot, pause };
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, Download, ExternalLink, Layers3, LoaderCircle, Pause, Play, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { api } from './api';
+import { useBackgroundRefresh } from './useBackgroundRefresh';
 import type { CreatedPuzzle, ImportedGame, ImportJob, ImportJobSummary, Improvement } from './api';
 import './game-library.css';
 
@@ -74,69 +75,51 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
   const [importBusy, setImportBusy] = useState<'public' | 'chesscom' | null>(null);
   const [stepBusy, setStepBusy] = useState(false);
   const [reanalyzingId, setReanalyzingId] = useState<number | null>(null);
-  const [runningId, setRunningId] = useState<number | null>(null);
   const [creatingId, setCreatingId] = useState<number | null>(null);
   const [created, setCreated] = useState<Record<number, CreatedPuzzle>>({});
   const [onlyImprovements, setOnlyImprovements] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const mounted = useRef(true);
-  const visibleRef = useRef(visible);
   const selectedRef = useRef<number | null>(null);
-  const activeRun = useRef<number | null>(null);
   const stepFlight = useRef(false);
   const importFlight = useRef(false);
   const creatingFlight = useRef(false);
   const reanalysisFlight = useRef(false);
-  const nextStep = useRef<number | undefined>(undefined);
   const detailVersion = useRef(0);
   const detailRevision = useRef(0);
   const listVersion = useRef(0);
   const jobsRevision = useRef(0);
   const changedRef = useRef(onChanged);
   const puzzleCounts = useRef(new Map<number, number>());
-  visibleRef.current = visible;
   changedRef.current = onChanged;
   const upsertJob = useCallback((job: ImportJobSummary) => {
     jobsRevision.current++;
     puzzleCounts.current.set(job.id, job.puzzles_count);
     setJobs(previous => [job, ...previous.filter(item => item.id !== job.id)].sort((a, b) => b.id - a.id));
   }, []);
-  const pauseAnalysis = useCallback(() => {
-    activeRun.current = null;
-    setRunningId(null);
-    window.clearTimeout(nextStep.current);
-  }, []);
-
-  const processStep = useCallback(async () => {
-    const id = activeRun.current;
-    if (id === null || stepFlight.current || !mounted.current || !visibleRef.current || document.visibilityState !== 'visible') return;
-    stepFlight.current = true; setStepBusy(true);
-    try {
-      const result = await api<ImportJob>(`/imports/${id}/step`, {});
-      if (!mounted.current) return;
-      const puzzlesChanged = puzzleCounts.current.get(result.id) !== result.puzzles_count;
-      upsertJob(result);
-      if (selectedRef.current === id) { detailRevision.current++; setDetail(result); }
-      if (puzzlesChanged || result.status === 'completed') changedRef.current();
-      if ((result.status === 'completed' || result.status === 'failed') && activeRun.current === id) {
-        activeRun.current = null; setRunningId(null);
-        if (result.status === 'failed') setError(result.error || 'Анализ остановлен. Попробуйте продолжить.');
-        else setNotice(`Анализ завершён. Найдено моментов: ${result.candidates_count}. Задач сохранено: ${result.puzzles_count}.`);
-      }
-    } catch (err) {
-      if (mounted.current && activeRun.current === id) { activeRun.current = null; setRunningId(null); setError(errorText(err)); }
-    } finally {
-      stepFlight.current = false;
-      if (mounted.current) {
-        setStepBusy(false);
-        if (activeRun.current !== null && visibleRef.current && document.visibilityState === 'visible') nextStep.current = window.setTimeout(() => { void processStep(); }, 200);
-      }
-    }
+  const acceptJob = useCallback((result: ImportJob) => {
+    const puzzlesChanged = puzzleCounts.current.get(result.id) !== result.puzzles_count;
+    upsertJob(result);
+    if (selectedRef.current === result.id) { detailRevision.current++; setDetail(result); }
+    if (puzzlesChanged) changedRef.current();
   }, [upsertJob]);
 
+  async function controlAnalysis(id: number, enabled: boolean) {
+    if (stepFlight.current || reanalysisFlight.current) return;
+    stepFlight.current = true; setStepBusy(true); setError(''); setNotice('');
+    detailRevision.current++; jobsRevision.current++;
+    try {
+      const result = await api<ImportJob>(`/imports/${id}/${enabled ? 'resume' : 'pause'}`, {});
+      if (mounted.current) acceptJob(result);
+    } catch (err) { if (mounted.current) setError(errorText(err)); }
+    finally { stepFlight.current = false; if (mounted.current) setStepBusy(false); }
+  }
+  const resumeAnalysis = (id: number) => { void controlAnalysis(id, true); };
+  const pauseAnalysis = () => { if (selectedRef.current !== null) void controlAnalysis(selectedRef.current, false); };
+
   const selectJob = useCallback(async (id: number) => {
-    pauseAnalysis(); selectedRef.current = id; setSelectedId(id); setDetail(null); setDetailBusy(true); setError(''); setNotice(''); setOnlyImprovements(false);
+    selectedRef.current = id; setSelectedId(id); setDetail(null); setDetailBusy(true); setError(''); setNotice(''); setOnlyImprovements(false);
     const version = ++detailVersion.current;
     const revision = detailRevision.current;
     try {
@@ -144,7 +127,7 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
       if (mounted.current && version === detailVersion.current && selectedRef.current === id && revision === detailRevision.current) { detailRevision.current++; setDetail(result); upsertJob(result); }
     } catch (err) { if (mounted.current && version === detailVersion.current) setError(errorText(err)); }
     finally { if (mounted.current && version === detailVersion.current) setDetailBusy(false); }
-  }, [pauseAnalysis, upsertJob]);
+  }, [upsertJob]);
 
   const loadJobs = useCallback(async () => {
     const version = ++listVersion.current;
@@ -161,33 +144,32 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
 
   useEffect(() => {
     mounted.current = true;
-    const hide = () => { if (document.visibilityState !== 'visible') pauseAnalysis(); };
-    const leave = () => pauseAnalysis();
-    document.addEventListener('visibilitychange', hide);
-    window.addEventListener('pagehide', leave);
-    return () => {
-      mounted.current = false; activeRun.current = null;
-      window.clearTimeout(nextStep.current);
-      document.removeEventListener('visibilitychange', hide);
-      window.removeEventListener('pagehide', leave);
-    };
-  }, [pauseAnalysis]);
-  useEffect(() => { if (visible) void loadJobs(); else pauseAnalysis(); }, [visible, loadJobs, pauseAnalysis]);
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => { if (visible) void loadJobs(); }, [visible, loadJobs]);
+  useBackgroundRefresh(async () => {
+    if (stepFlight.current || importFlight.current || reanalysisFlight.current) return;
+    const id = selectedRef.current, revision = detailRevision.current, selection = detailVersion.current, list = jobsRevision.current;
+    try {
+      const [result, current] = await Promise.all([
+        api<{ jobs: ImportJobSummary[] }>('/imports'),
+        id === null ? Promise.resolve(null) : api<ImportJob>(`/imports/${id}`),
+      ]);
+      if (!mounted.current) return;
+      if (list === jobsRevision.current) setJobs(result.jobs);
+      if (current && selectedRef.current === id && revision === detailRevision.current && selection === detailVersion.current) acceptJob(current);
+    } catch (err) { if (mounted.current) setError(errorText(err)); }
+  }, visible);
 
-  function resumeAnalysis(id: number) {
-    if (stepFlight.current || reanalysisFlight.current || !visibleRef.current || document.visibilityState !== 'visible') return;
-    setError(''); setNotice(''); activeRun.current = id; setRunningId(id); void processStep();
-  }
   async function beginImport(source: 'public' | 'chesscom', event?: FormEvent) {
     event?.preventDefault();
     if (importFlight.current || stepFlight.current || reanalysisFlight.current) return;
-    importFlight.current = true; pauseAnalysis(); setImportBusy(source); setError(''); setNotice('');
+    importFlight.current = true; detailRevision.current++; jobsRevision.current++; setImportBusy(source); setError(''); setNotice('');
     try {
-      const job = await api<ImportJob>(`/imports/${source}`, source === 'chesscom' ? { username: username.trim(), month: month || null, limit } : {});
+      const job = await api<ImportJob>(`/imports/${source}`, source === 'chesscom' ? { username: username.trim(), month: month || null, limit, background: true } : { background: true });
       if (!mounted.current) return;
       detailVersion.current++; detailRevision.current++; selectedRef.current = job.id; setSelectedId(job.id); setDetail(job); setDetailBusy(false); setOnlyImprovements(false); upsertJob(job); changedRef.current();
       if (job.analysis_outdated) setNotice('Для этой подборки доступна улучшенная проверка. Нажмите «Пересчитать анализ».');
-      else if (job.status !== 'completed' && visibleRef.current && document.visibilityState === 'visible') resumeAnalysis(job.id);
       else if (job.status === 'completed') setNotice('Эта подборка уже обработана. Сохранённые задачи доступны в выбранной базе.');
     } catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { importFlight.current = false; if (mounted.current) setImportBusy(null); }
@@ -214,24 +196,22 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
   async function reanalyzeJob(id: number) {
     if (reanalysisFlight.current || stepFlight.current || importFlight.current || creatingFlight.current) return;
     reanalysisFlight.current = true;
-    pauseAnalysis(); setReanalyzingId(id); setError(''); setNotice('');
+    detailRevision.current++; jobsRevision.current++; setReanalyzingId(id); setError(''); setNotice('');
     const version = ++detailVersion.current;
     try {
-      const job = await api<ImportJob>(`/imports/${id}/reanalyze`, {});
+      const job = await api<ImportJob>(`/imports/${id}/reanalyze`, { background: true });
       if (!mounted.current) return;
       upsertJob(job); setCreated({}); changedRef.current();
       if (selectedRef.current === id && version === detailVersion.current) {
         detailRevision.current++; setDetail(job); setOnlyImprovements(false);
         reanalysisFlight.current = false;
-        if (visibleRef.current && document.visibilityState === 'visible') resumeAnalysis(id);
-        else setNotice('Подборка готова к пересчёту. Нажмите «Продолжить анализ», когда вернётесь.');
       }
     } catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { reanalysisFlight.current = false; if (mounted.current) setReanalyzingId(null); }
   }
-  function practice(id: string, collection: string) { pauseAnalysis(); onPractice(id, collection); }
+  function practice(id: string, collection: string) { onPractice(id, collection); }
 
-  const running = detail !== null && runningId === detail.id;
+  const running = !!detail?.background_requested && detail.status !== 'completed' && detail.status !== 'failed';
   const displayedGames = detail?.games.filter(game => !onlyImprovements || game.candidates.length > 0) || [];
   const readyMoments = detail?.available_puzzles_count ?? detail?.games.reduce((sum, game) => sum + game.candidates.filter(item => item.puzzle_available && !item.analysis_pending).length, 0) ?? 0;
   const positions = detail?.games.reduce((sum, game) => sum + game.total_plies, 0) || 0;
@@ -254,17 +234,17 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
     {notice && <div className="library-notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button className="icon-button" aria-label="Закрыть уведомление" onClick={() => setNotice('')}><X size={15} /></button></div>}
 
     <div className="library-workspace"><aside className="panel import-history"><div className="panel-title"><h2>Ваши подборки</h2><button className="icon-button" aria-label="Обновить список подборок" disabled={listBusy} onClick={() => void loadJobs()}>{listBusy ? <Spinner /> : <RefreshCw size={16} />}</button></div>
-      {!jobs.length ? <p className="library-empty">{listBusy ? 'Загружаем подборки…' : 'Здесь появятся загруженные партии и результаты их анализа.'}</p> : <div className="import-history-list">{jobs.map(job => <button key={job.id} className={selectedId === job.id ? 'selected' : ''} aria-pressed={selectedId === job.id} onClick={() => void selectJob(job.id)}><strong>{jobName(job)}</strong><small>{job.month || dateLabel(job.created_at)} · {job.total_games} партий</small><span>{job.status === 'completed' ? 'Готово' : job.status === 'failed' ? 'Требует внимания' : activeRun.current === job.id ? 'Анализируем' : 'Можно продолжить'} <span>·</span> {job.candidates_count} моментов</span></button>)}</div>}
+      {!jobs.length ? <p className="library-empty">{listBusy ? 'Загружаем подборки…' : 'Здесь появятся загруженные партии и результаты их анализа.'}</p> : <div className="import-history-list">{jobs.map(job => <button key={job.id} className={selectedId === job.id ? 'selected' : ''} aria-pressed={selectedId === job.id} onClick={() => void selectJob(job.id)}><strong>{jobName(job)}</strong><small>{job.month || dateLabel(job.created_at)} · {job.total_games} партий</small><span>{job.status === 'completed' ? 'Готово' : job.status === 'failed' ? 'Требует внимания' : job.background_requested ? 'Анализируем' : 'Можно продолжить'} <span>·</span> {job.candidates_count} моментов</span></button>)}</div>}
     </aside>
     <div className="library-results" aria-busy={detailBusy}>
       {detailBusy ? <div className="panel library-placeholder"><Spinner /><p>Открываем результаты…</p></div> : !detail ? <div className="panel library-placeholder"><BookOpen size={29} /><h2>Начните с нескольких партий</h2><p>В списке появятся улучшения и готовые задачи для тренировки.</p></div> : <>
-        <section className="panel import-progress-panel"><div className="import-detail-heading"><div><h2>{jobName(detail)}</h2><p>{detail.source === 'public' ? 'Тактические возможности за обе стороны.' : `Улучшения в ходах ${detail.username}.`}</p></div>{detail.analysis_outdated ? <span className="import-complete">Доступен пересчёт</span> : detail.status === 'completed' ? <span className="import-complete"><CheckCircle2 size={17} /> Готово</span> : running ? <button className="button secondary" onClick={pauseAnalysis}><Pause size={15} /> Пауза</button> : <button className="button secondary" disabled={stepBusy || importBusy !== null || reanalyzingId !== null} onClick={() => resumeAnalysis(detail.id)}>{stepBusy ? <Spinner /> : <Play size={15} />}{stepBusy ? 'Завершаем проверку…' : detail.status === 'failed' ? 'Повторить анализ' : 'Продолжить анализ'}</button>}</div>
+        <section className="panel import-progress-panel"><div className="import-detail-heading"><div><h2>{jobName(detail)}</h2><p>{detail.source === 'public' ? 'Тактические возможности за обе стороны.' : `Улучшения в ходах ${detail.username}.`}</p></div>{detail.analysis_outdated ? <span className="import-complete">Доступен пересчёт</span> : detail.status === 'completed' ? <span className="import-complete"><CheckCircle2 size={17} /> Готово</span> : running ? <button className="button secondary" disabled={stepBusy} onClick={pauseAnalysis}><Pause size={15} /> Пауза</button> : <button className="button secondary" disabled={stepBusy || importBusy !== null || reanalyzingId !== null} onClick={() => resumeAnalysis(detail.id)}>{stepBusy ? <Spinner /> : <Play size={15} />}{stepBusy ? 'Завершаем проверку…' : detail.status === 'failed' ? 'Повторить анализ' : 'Продолжить анализ'}</button>}</div>
           <div className="import-progress-track" role="progressbar" aria-label="Анализ подборки" aria-valuemin={0} aria-valuemax={positions || 1} aria-valuenow={Math.min(checked, positions || 1)}><span style={{ width: `${positions ? Math.min(100, checked / positions * 100) : detail.status === 'completed' ? 100 : 0}%` }} /></div>
           <div className="import-totals"><span><strong>{detail.completed_games} / {detail.total_games}</strong> партий обработано</span><span><strong>{detail.candidates_count}</strong> моментов найдено</span><span><strong>{readyMoments}</strong> подходящих моментов</span><span><strong>{detail.puzzles_count}</strong> задач из этих партий</span></div>
           <p className="import-small-note auto-save-note"><CheckCircle2 size={13} /> Подходящие задачи сохраняются автоматически и доступны для решения сразу.</p>
           {detail.analysis_outdated && <p className="analysis-update-note">Для этой подборки доступна улучшенная проверка. Пересчитайте анализ, чтобы обновить выводы и найти подходящие задачи.</p>}
           <div className="reanalyze-actions"><button className="button secondary" disabled={running || stepBusy || importBusy !== null || reanalyzingId !== null || creatingId !== null} onClick={() => void reanalyzeJob(detail.id)}>{reanalyzingId === detail.id ? <Spinner /> : <RefreshCw size={14} />}{reanalyzingId === detail.id ? 'Готовим пересчёт…' : 'Пересчитать анализ'}</button><span>Задачи и прогресс тренировок сохранятся.</span></div>
-          {detail.status !== 'completed' && !detail.analysis_outdated && <p className="import-small-note">{running ? 'Анализ продолжается, пока эта вкладка открыта. Можно сделать паузу и вернуться позже.' : stepBusy ? 'Текущая проверка завершится и сохранится. Новые позиции пока не анализируем.' : 'Прогресс сохранён. Продолжите анализ, когда будет удобно.'}</p>}
+          {detail.status !== 'completed' && !detail.analysis_outdated && <p className="import-small-note">{running ? 'Анализ продолжается в фоне. Можно свернуть браузер или перейти к тренировке.' : stepBusy ? 'Текущая проверка завершится и сохранится. Новые позиции пока не анализируем.' : 'Прогресс сохранён. Продолжите анализ, когда будет удобно.'}</p>}
           {detail.error && <p className="game-note">{detail.error}</p>}
           <label className="improvement-filter"><input type="checkbox" checked={onlyImprovements} onChange={event => setOnlyImprovements(event.target.checked)} /> Только партии с найденными моментами</label>
         </section>

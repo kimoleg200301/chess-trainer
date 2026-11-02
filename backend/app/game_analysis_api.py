@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 import chess
 import chess.engine
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import DateTime, case, cast, func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .background import BackgroundStart, request_background
 from .db import get_db
 from .engine_resources import engine_slots
 from .game_sources import safe_game_url, source_game_time
@@ -24,7 +25,7 @@ LOCK_NAMESPACE = 782105
 MAX_LIST_GAMES = 200
 
 
-class StartGameAnalysis(BaseModel):
+class StartGameAnalysis(BackgroundStart):
     game_id: int = Field(strict=True, gt=0)
 
 
@@ -76,6 +77,7 @@ def game_view(game: ImportedGame, job: ImportJob, analysis: GameAnalysis | None 
         "total_plies": len(game.data.get("moves", [])),
         "analysis_id": analysis.id if analysis else None,
         "analysis_status": analysis.status if analysis else None,
+        "background_requested": analysis.background_requested if analysis else False,
         "analysis_outdated": bool(analysis and analysis.analysis_version != ANALYSIS_VERSION),
     }
 
@@ -87,7 +89,7 @@ def analysis_view(analysis: GameAnalysis, game: ImportedGame, job: ImportJob) ->
     return {
         "id": analysis.id, "game_id": game.id,
         "game": {**game_view(game, job, analysis), "initial_fen": game.data["initial_fen"]},
-        "status": analysis.status, "cursor": analysis.cursor, "total_plies": total,
+        "status": analysis.status, "background_requested": analysis.background_requested, "cursor": analysis.cursor, "total_plies": total,
         "analysis_version": analysis.analysis_version,
         "analysis_outdated": analysis.analysis_version != ANALYSIS_VERSION,
         "error": analysis.error, "created_at": analysis.created_at, "updated_at": analysis.updated_at,
@@ -137,11 +139,14 @@ def start_analysis(body: StartGameAnalysis, db: Session = Depends(get_db), user:
                                                     GameAnalysis.fingerprint == game.fingerprint))
     if previous is not None:
         existing, source_game, source_job = owned_analysis(db, previous.id, user.id)
+        if body.background and existing.analysis_version == ANALYSIS_VERSION:
+            request_background(db, existing, ANALYSIS_VERSION, True)
         return analysis_view(existing, source_game, source_job)
     if not 1 <= len(game.data.get("moves", [])) <= 400:
         raise HTTPException(422, "Для анализа нужна завершённая стандартная партия до 400 полуходов.")
     analysis = GameAnalysis(user_id=user.id, game_id=game.id, fingerprint=game.fingerprint,
-                            analysis_version=ANALYSIS_VERSION, status="ready", cursor=0, moves=[])
+                            analysis_version=ANALYSIS_VERSION, status="ready", cursor=0, moves=[],
+                            background_requested=body.background)
     db.add(analysis)
     db.commit()
     return analysis_view(analysis, game, job)
@@ -154,10 +159,16 @@ def get_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = D
 
 @router.post("/{analysis_id}/step")
 def step_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return process_step(analysis_id, db, user)
+
+
+def process_step(analysis_id: int, db: Session, user: User, *, background: bool = False):
     from .game_analysis_engine import analyse_game_move
     analysis, game, job = owned_analysis(db, analysis_id, user.id)
     lock_analysis(db, analysis_id, user.id)
     db.refresh(analysis)
+    if background and (not analysis.background_requested or analysis.status not in {"ready", "running"}):
+        return None
     if analysis.analysis_version != ANALYSIS_VERSION:
         raise HTTPException(409, "Метод оценки обновлён. Запустите пересчёт этой партии.")
     if analysis.status == "completed":
@@ -180,6 +191,7 @@ def step_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = 
         analysis.updated_at = now()
         if analysis.cursor == len(game.data["moves"]):
             analysis.status = "completed"
+            analysis.background_requested = False
         db.commit()
         return analysis_view(analysis, game, job)
     except (OSError, chess.engine.EngineError, TimeoutError, ValueError):
@@ -187,6 +199,7 @@ def step_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = 
         # recording failure so another successful step cannot be overwritten.
         analysis.status, analysis.error, analysis.updated_at = (
             "failed", "Анализ прерван. Проверенные ходы сохранены; продолжите обработку.", now())
+        analysis.background_requested = False
         db.commit()
         raise HTTPException(503, analysis.error) from None
     finally:
@@ -194,12 +207,27 @@ def step_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = 
 
 
 @router.post("/{analysis_id}/restart")
-def restart_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def restart_analysis(analysis_id: int, body: BackgroundStart = BackgroundStart(), db: Session = Depends(get_db), user: User = Depends(current_user)):
     analysis, game, job = owned_analysis(db, analysis_id, user.id)
     lock_analysis(db, analysis_id, user.id)
     db.refresh(analysis)
     analysis.cursor, analysis.moves = 0, []
     analysis.status, analysis.error, analysis.analysis_version = "ready", None, ANALYSIS_VERSION
+    analysis.background_requested = body.background
     analysis.updated_at = now()
     db.commit()
+    return analysis_view(analysis, game, job)
+
+
+@router.post("/{analysis_id}/resume")
+def resume_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    analysis, game, job = owned_analysis(db, analysis_id, user.id)
+    request_background(db, analysis, ANALYSIS_VERSION, True)
+    return analysis_view(analysis, game, job)
+
+
+@router.post("/{analysis_id}/pause")
+def pause_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    analysis, game, job = owned_analysis(db, analysis_id, user.id)
+    request_background(db, analysis, ANALYSIS_VERSION, False)
     return analysis_view(analysis, game, job)

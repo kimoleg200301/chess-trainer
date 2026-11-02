@@ -32,7 +32,7 @@ Selecting an unfinished personal puzzle resumes its latest active attempt, prese
 - `POST /api/training/{id}/time` `{elapsed_ms:number}` -> Attempt. Saves active solving time without making a move; ownership and Origin rules match other training actions.
 - `GET /api/training/{id}/analysis` -> `{evaluation:string,line:string[],engine:string}`. Only completed/revealed; Stockfish analysis may return 503 if unavailable. SAN line starting from current position.
 
-`elapsed_ms` is measured active solving time, sent by the client as a nonnegative integer in milliseconds (at most JavaScript's maximum safe integer). The client pauses timing outside the visible solving screen and while awaiting actions. Updates are cumulative and monotonic; delayed lower values do not decrease time, and finalized attempts ignore late timing updates. Incorrect legal moves and hints also save the supplied time. No-body hint/reveal requests and old move requests remain supported. New attempts start with `elapsed_ms:null` until a measurement is received; `null` means unknown, not zero. Historical records are not estimated from wall-clock timestamps.
+`elapsed_ms` is measured active solving time, sent by the client as a nonnegative integer in milliseconds (at most JavaScript's maximum safe integer). The client measures wall-clock deltas, including time in a minimized, hidden or temporarily frozen browser tab, and reconciles the display on return. Timing pauses on the settings/other app screens and while awaiting actions; completion/reveal freezes the result. A hidden-tab checkpoint does not pause the clock. If the browser discards the page entirely, only saved time can be recovered. Updates are cumulative and monotonic; delayed lower values do not decrease time, and finalized attempts ignore late timing updates. Incorrect legal moves and hints also save the supplied time. No-body hint/reveal requests and old move requests remain supported. New attempts start with `elapsed_ms:null` until a measurement is received; `null` means unknown, not zero. Historical records are not estimated from wall-clock timestamps.
 
 ## Statistics
 `GET /api/stats` -> `{solved:number,total_attempts:number,accuracy:number,streak:number,due_count:number,average_solution_ms:number|null,timed_solutions:number,by_theme:[{id:string,name:string,attempts:number,solved:number}],recent:[{puzzle_id:string,rating:number,collection:string,rating_estimated:boolean,status:string,created_at:string,elapsed_ms:number|null}]}`.
@@ -45,14 +45,14 @@ All routes require authentication and the existing same-origin checks. IDs are s
 - `POST /api/imports/public` `{}` -> ImportJob, using the packaged `public-games.pgn` (up to 50 games).
 - `GET /api/imports` -> `{jobs:ImportJobSummary[]}`, latest 100 owned batches.
 - `GET /api/imports/{id}` -> ImportJob.
-- `POST /api/imports/{id}/step` `{}` -> ImportJob. Processes at most one selected ply with a bounded Stockfish budget and deeper verification for candidate moments; persists its cursor and results. Chess.com checks only the requested player's moves; public generation checks both colors and can extract a tactic even if the right move was played. Completed jobs return unchanged. A concurrent step returns 409; busy/unavailable engine returns 503 and the user can retry. No worker continues once the client stops requesting steps.
+- `POST /api/imports/{id}/step` `{}` -> ImportJob. Processes at most one selected ply with a bounded Stockfish budget and deeper verification for candidate moments; persists its cursor and results. Chess.com checks only the requested player's moves; public generation checks both colors and can extract a tactic even if the right move was played. Completed jobs return unchanged. A concurrent step returns 409; busy/unavailable engine returns 503 and the user can retry. This remains a single-step compatibility endpoint; background execution is controlled separately by the persisted `background_requested` flag.
 - `POST /api/imports/{id}/reanalyze` `{}` -> ImportJob. Resets the owned batch for the current analysis version. Reuses saved PGNs rather than downloading different games. Old candidates remain visible as pending until their ply is checked; recalculation updates/removes them. Existing puzzle definitions and training history are retained. Concurrent processing returns 409.
 - `POST /api/candidates/{id}/puzzle` `{}` -> `{puzzle_id,collection:"public"|"personal",created:boolean}`. A candidate without a validated tactical line returns 422. Deterministic identities prevent repeated saves of the same puzzle. Both public and personal jobs save eligible puzzles automatically. This endpoint remains an idempotent fallback for older unsaved candidates. Application bootstrap also saves previously eligible unsaved candidates, without recalculating or replacing their definitions.
 
 ImportJobSummary:
 ```
 {id,source:"public"|"chesscom",username:string|null,month:string|null,
- status:"ready"|"running"|"completed"|"failed",total_games,completed_games,
+ status:"ready"|"running"|"completed"|"failed",background_requested:boolean,total_games,completed_games,
  candidates_count,available_puzzles_count,puzzles_count,
  analysis_version:number,analysis_outdated:boolean,error:string|null,created_at}
 ```
@@ -71,7 +71,7 @@ ImportJob adds `games`:
 
 `ply` is zero-based. Scores are centipawns from the mover's perspective; signed mate fields distinguish mate for/against the mover. Phase is a heuristic (`opening`, `middlegame`, `endgame`). Inspectable analysis intentionally exposes improved moves on this screen; ordinary training still hides its solution. A useful improvement need not qualify as a tactical puzzle. Generated ratings are approximate (`rating_estimated:true`). Engine limits favor a compact set of unambiguous tactics; they do not guarantee exhaustive or perfect game analysis.
 
-Identical imports resume the stored job. Overlapping batches can reuse completed analyses only for the same source, requested player and current analysis version. Old analyses do not silently become current through reuse. Import state is stored in PostgreSQL. The UI pauses requests when hidden or navigating away and requires manual resume; an in-flight step may finish and be saved.
+Identical imports reopen the stored job. Overlapping batches can reuse completed analyses only for the same source, requested player and current analysis version. Old analyses do not silently become current through reuse. Import state is stored in PostgreSQL. The UI polls saved results while visible and refreshes on return. Hiding or leaving the screen never changes server execution intent. Explicit pause permits the current step to finish and checkpoint, then prevents further steps.
 
 ## Independent whole-game analysis
 
@@ -87,12 +87,12 @@ GameAnalysisSource:
 ```
 {id,white,black,result,date,event,game_url,source_game_at:string|null,
  username:string|null,total_plies,analysis_id:number|null,
- analysis_status:"ready"|"running"|"completed"|"failed"|null,analysis_outdated:boolean}
+ analysis_status:"ready"|"running"|"completed"|"failed"|null,analysis_outdated:boolean,background_requested:boolean}
 ```
 GameAnalysisReport:
 ```
 {id,game_id,game:GameAnalysisSource & {initial_fen:string},
- status:"ready"|"running"|"completed"|"failed",cursor,total_plies,
+ status:"ready"|"running"|"completed"|"failed",background_requested:boolean,cursor,total_plies,
  analysis_version,analysis_outdated,error:string|null,created_at,updated_at,
  summary:{white:GameSideSummary,black:GameSideSummary,complete:boolean},
  moves:GameMoveAnalysis[],category_names:{[category]:string},method:object}
@@ -120,7 +120,16 @@ The method is Tactics Lab's own Stockfish heuristic, not Chess.com's formula. A 
 
 Side accuracy is the arithmetic mean of assessed non-forced move accuracies. `coverage` is the assessed percentage of that side's total moves, from 0 to 100. Partial reports expose `provisional_accuracy`; final `accuracy` stays null until the report finishes and every move for that side is assessed. A completed report can still contain `unassessed` moves and therefore lack a final percentage. Forced moves count toward coverage but not the mean; a side with only forced moves has no measured accuracy. `complete` describes processed moves; `accuracy_complete` describes full assessment, not the existence of a non-forced sample.
 
-Each checkpoint and completed report is stored in PostgreSQL independently of tactic-generation state. The client stops new steps on pause, navigation or a hidden tab and resumes only on request; an in-flight step may still save. No background worker continues analysis while the screen is closed.
+Each checkpoint and completed report is stored in PostgreSQL independently of tactic-generation state. The lifespan worker continues requested analyses without browser requests, including while the screen is closed. Pausing is explicit; an in-flight step may still save. Saved intent and checkpoints survive application restart.
+
+## Background analysis lifecycle
+
+- Import creation (`/api/imports/chesscom`, `/api/imports/public`), report creation (`/api/game-analysis`), and the reanalyze/restart endpoints accept an optional JSON `background:boolean` (default `false` for compatibility). With `true`, execution is scheduled by the initial request, without a follow-up from the browser. The training library sends `true`; importing games solely for the separate review screen does not start tactical generation.
+- `POST /api/imports/{id}/resume` and `POST /api/game-analysis/{id}/resume` `{}` enable background processing. Repeated starts are idempotent, completed records stay completed, failed records become retryable, and outdated versions require explicit recalculation (409).
+- `POST /api/imports/{id}/pause` and `POST /api/game-analysis/{id}/pause` `{}` disable background processing. These routes return the updated owned ImportJob/GameAnalysisReport and use the same authentication and Origin protection as the existing routes. Pause can be accepted while the engine is computing; that position may still be saved. `background_requested`, rather than `status:"running"` alone, determines whether more work is scheduled.
+- The API lifespan starts a worker, which fairly interleaves queued batches/reports by oldest checkpoint, with one bounded step at a time. PostgreSQL coordinator/advisory locks prevent duplicate background work across processes. Existing per-user and engine locks still apply. Temporary engine/lock contention is retried; engine failures preserve the last checkpoint and require explicit resume. Completion clears background intent.
+- Migration `0006_background_analysis` defaults existing records to paused; no historical analysis silently resumes. Pending intent survives process restart and is read from PostgreSQL without a client connection. Graceful shutdown finishes the current bounded position; a crash can only lose the unfinished step.
+- The server must be running. The primary WSL server is updated according to `deploy/SERVER.md`; host sleep or shutdown suspends processing until it is running again. The archived Render Free deployment may sleep after 15 minutes without incoming requests. Use an always-on host for uninterrupted long jobs. Screen Wake Lock only keeps the visible training display awake; background execution does not depend on it.
 
 ## Stockfish benchmark
 

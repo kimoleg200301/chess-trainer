@@ -1,4 +1,4 @@
-"""Resumable, request-driven batches for personal and public game analysis."""
+"""Resumable batches for personal and public game analysis."""
 import hashlib
 import json
 import os
@@ -8,13 +8,14 @@ import time
 import chess
 import chess.engine
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from .collections import generate_puzzle_id
+from .background import BackgroundStart, request_background
 from .config import settings
 from .db import get_db
 from .engine_resources import engine_slots
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/api")
 ANALYSIS_VERSION = 2
 
 
-class ChessComImportBody(BaseModel):
+class ChessComImportBody(BackgroundStart):
     username: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
     month: str | None = Field(default=None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")
     limit: int = Field(default=10, ge=1, le=50, strict=True)
@@ -103,7 +104,7 @@ def job_view(db: Session, job: ImportJob, details: bool = True) -> dict:
                                 Puzzle.owner_id == source_owner,
                                 or_(Puzzle.id.in_(linked_ids), Puzzle.game_url.in_(game_urls)))))
     result = {"id": job.id, "source": job.source, "username": job.username, "month": job.month,
-              "status": job.status, "total_games": len(games),
+              "status": job.status, "background_requested": job.background_requested, "total_games": len(games),
               "completed_games": sum(game.status in {"completed", "skipped"} for game in games),
               "candidates_count": len(candidates),
               "available_puzzles_count": sum(candidate.data.get("puzzle") is not None and not pending(candidate) for candidate in candidates),
@@ -255,11 +256,14 @@ def list_imports(db: Session = Depends(get_db), user: User = Depends(current_use
 @router.post("/imports/chesscom")
 def import_chesscom(body: ChessComImportBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     month, games = chesscom_games(body.username, body.month, body.limit)
-    return job_view(db, create_job(db, user, "chesscom", games, body.username, month))
+    job = create_job(db, user, "chesscom", games, body.username, month)
+    if body.background and job.analysis_version == ANALYSIS_VERSION:
+        request_background(db, job, ANALYSIS_VERSION, True)
+    return job_view(db, job)
 
 
 @router.post("/imports/public")
-def import_public(db: Session = Depends(get_db), user: User = Depends(current_user)):
+def import_public(body: BackgroundStart = BackgroundStart(), db: Session = Depends(get_db), user: User = Depends(current_user)):
     from .generation import parse_games
     path = Path(os.environ.get("PUBLIC_GAMES_PATH", str(Path(settings().data_path).with_name("public-games.pgn"))))
     if not path.is_file():
@@ -270,7 +274,10 @@ def import_public(db: Session = Depends(get_db), user: User = Depends(current_us
         games = parse_games(path.read_text(encoding="utf-8"), max_games=50, max_plies=400)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
-    return job_view(db, create_job(db, user, "public", games))
+    job = create_job(db, user, "public", games)
+    if body.background and job.analysis_version == ANALYSIS_VERSION:
+        request_background(db, job, ANALYSIS_VERSION, True)
+    return job_view(db, job)
 
 
 @router.get("/imports/{job_id}")
@@ -280,12 +287,18 @@ def get_import(job_id: int, db: Session = Depends(get_db), user: User = Depends(
 
 @router.post("/imports/{job_id}/step")
 def analyse_step(job_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return process_step(job_id, db, user)
+
+
+def process_step(job_id: int, db: Session, user: User, *, background: bool = False):
     from .generation import analyse_position
     job = owned_job(db, job_id, user.id)
     if not db.scalar(select(func.pg_try_advisory_xact_lock(782104, job_id))):
         raise HTTPException(409, "Эта подборка уже обрабатывается. Дождитесь текущего шага.")
     lock_user(db, user.id)
     db.refresh(job)
+    if background and (not job.background_requested or job.status not in {"ready", "running"}):
+        return None
     if job.analysis_version != ANALYSIS_VERSION:
         raise HTTPException(409, "Метод проверки обновлён. Запустите повторный анализ подборки.")
     if job.status == "completed":
@@ -293,53 +306,57 @@ def analyse_step(job_id: int, db: Session = Depends(get_db), user: User = Depend
     if not engine_slots.acquire(blocking=False):
         raise HTTPException(503, "Движок занят. Повторите шаг анализа через несколько секунд.")
     try:
-        job.status, job.error, job.updated_at = "running", None, now()
-        count, deadline = 0, time.monotonic() + 16
-        with chess.engine.SimpleEngine.popen_uci(settings().stockfish_path, timeout=5) as engine:
-            engine.configure({"Threads": 1, "Hash": 32})
-            for game in db.scalars(select(ImportedGame).where(ImportedGame.job_id == job.id,
-                                    ImportedGame.status.in_(["pending", "analysing"])).order_by(ImportedGame.id)):
-                game.status = "analysing"
-                initial_turn = chess.Board(game.data["initial_fen"]).turn
-                learner_white = game.data["white"].lower() == job.username if job.username else None
-                while game.cursor < len(game.data["moves"]):
-                    ply = game.cursor
-                    mover_white = initial_turn if ply % 2 == 0 else not initial_turn
-                    if job.source == "chesscom" and mover_white != learner_white:
+        with db.begin_nested():
+            count, deadline = 0, time.monotonic() + 16
+            with chess.engine.SimpleEngine.popen_uci(settings().stockfish_path, timeout=5) as engine:
+                engine.configure({"Threads": 1, "Hash": 32})
+                for game in db.scalars(select(ImportedGame).where(ImportedGame.job_id == job.id,
+                                        ImportedGame.status.in_(["pending", "analysing"])).order_by(ImportedGame.id)):
+                    game.status = "analysing"
+                    initial_turn = chess.Board(game.data["initial_fen"]).turn
+                    learner_white = game.data["white"].lower() == job.username if job.username else None
+                    while game.cursor < len(game.data["moves"]):
+                        ply = game.cursor
+                        mover_white = initial_turn if ply % 2 == 0 else not initial_turn
+                        if job.source == "chesscom" and mover_white != learner_white:
+                            game.cursor += 1
+                            continue
+                        if count >= 1 or time.monotonic() >= deadline:
+                            break
+                        candidate = analyse_position(game.data, ply, engine, max_time=1.2, max_position_time=14,
+                                                     require_mistake=job.source == "chesscom")
                         game.cursor += 1
-                        continue
+                        count += 1
+                        found = db.scalar(select(Improvement).where(Improvement.game_id == game.id, Improvement.ply == ply))
+                        if candidate is not None:
+                            if found is None:
+                                found = Improvement(game_id=game.id, ply=ply, data=candidate)
+                                db.add(found)
+                            else:
+                                found.data = candidate
+                            db.flush()
+                            if candidate.get("puzzle") is not None:
+                                create_puzzle(db, job, game, found)
+                        elif found is not None:
+                            db.delete(found)
+                    if game.cursor >= len(game.data["moves"]):
+                        game.status, game.analysis_version = "completed", ANALYSIS_VERSION
                     if count >= 1 or time.monotonic() >= deadline:
                         break
-                    candidate = analyse_position(game.data, ply, engine, max_time=1.2, max_position_time=14,
-                                                 require_mistake=job.source == "chesscom")
-                    game.cursor += 1
-                    count += 1
-                    found = db.scalar(select(Improvement).where(Improvement.game_id == game.id, Improvement.ply == ply))
-                    if candidate is not None:
-                        if found is None:
-                            found = Improvement(game_id=game.id, ply=ply, data=candidate)
-                            db.add(found)
-                        else:
-                            found.data = candidate
-                        db.flush()
-                        if candidate.get("puzzle") is not None:
-                            create_puzzle(db, job, game, found)
-                    elif found is not None:
-                        db.delete(found)
-                if game.cursor >= len(game.data["moves"]):
-                    game.status, game.analysis_version = "completed", ANALYSIS_VERSION
-                if count >= 1 or time.monotonic() >= deadline:
-                    break
-        db.flush()
-        if not db.scalar(select(ImportedGame.id).where(ImportedGame.job_id == job.id,
-                         ImportedGame.status.in_(["pending", "analysing"])).limit(1)):
-            job.status, job.analysis_version = "completed", ANALYSIS_VERSION
+            job.status, job.error, job.updated_at = "running", None, now()
+            db.flush()
+            if not db.scalar(select(ImportedGame.id).where(ImportedGame.job_id == job.id,
+                             ImportedGame.status.in_(["pending", "analysing"])).limit(1)):
+                job.status, job.analysis_version = "completed", ANALYSIS_VERSION
+                job.background_requested = False
         db.commit()
         return job_view(db, job)
     except (OSError, chess.engine.EngineError, TimeoutError, ValueError):
-        db.rollback()
-        job = owned_job(db, job_id, user.id)
+        # Roll back only this position; retain the advisory/user locks while
+        # recording failure so a concurrent successful step cannot be overwritten.
+        db.refresh(job)
         job.status, job.error, job.updated_at = "failed", "Анализ прерван. Уже сохранённые шаги доступны; повторите обработку.", now()
+        job.background_requested = False
         db.commit()
         raise HTTPException(503, job.error) from None
     finally:
@@ -347,7 +364,7 @@ def analyse_step(job_id: int, db: Session = Depends(get_db), user: User = Depend
 
 
 @router.post("/imports/{job_id}/reanalyze")
-def reanalyse_import(job_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def reanalyse_import(job_id: int, body: BackgroundStart = BackgroundStart(), db: Session = Depends(get_db), user: User = Depends(current_user)):
     job = owned_job(db, job_id, user.id)
     if not db.scalar(select(func.pg_try_advisory_xact_lock(782104, job_id))):
         raise HTTPException(409, "Подождите завершения текущего шага, затем повторите анализ.")
@@ -358,7 +375,22 @@ def reanalyse_import(job_id: int, db: Session = Depends(get_db), user: User = De
         game.cursor, game.status, game.error = 0, "pending", None
         game.analysis_version = ANALYSIS_VERSION
     job.status, job.error, job.analysis_version, job.updated_at = "ready", None, ANALYSIS_VERSION, now()
+    job.background_requested = body.background
     db.commit()
+    return job_view(db, job)
+
+
+@router.post("/imports/{job_id}/resume")
+def resume_import(job_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    job = owned_job(db, job_id, user.id)
+    request_background(db, job, ANALYSIS_VERSION, True)
+    return job_view(db, job)
+
+
+@router.post("/imports/{job_id}/pause")
+def pause_import(job_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    job = owned_job(db, job_id, user.id)
+    request_background(db, job, ANALYSIS_VERSION, False)
     return job_view(db, job)
 
 
