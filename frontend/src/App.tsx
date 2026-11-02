@@ -5,6 +5,8 @@ import ChessBoard from './ChessBoard';
 import TrainingSetup from './TrainingSetup';
 import GameLibrary from './GameLibrary';
 import GameAnalysis from './GameAnalysis';
+import SoundToggle from './SoundToggle';
+import { listenForSoundGestures, playSound } from './sound';
 import { useAttemptTimer } from './useAttemptTimer';
 import { useScreenWakeLock } from './useScreenWakeLock';
 import { formatDuration } from './time';
@@ -194,6 +196,18 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     return { ...attempt, fen: board.fen(), last_move: replayIndex ? reveal.solution[replayIndex - 1].uci : null };
   }, [attempt, reveal, initialFen, replayIndex, playback]);
 
+  const previousReplay = useRef({ attemptId: attempt?.id, index: replayIndex });
+  useEffect(() => {
+    const previous = previousReplay.current;
+    previousReplay.current = { attemptId: attempt?.id, index: replayIndex };
+    if (!reveal || !initialFen || !visible || screen !== 'session' || previous.attemptId !== attempt?.id
+        || Math.abs(replayIndex - previous.index) !== 1) return;
+    const board = new Chess(initialFen);
+    let captured = false;
+    for (const item of reveal.solution.slice(0, Math.max(replayIndex, previous.index))) captured = !!board.move(item.uci).captured;
+    playSound(captured ? 'capture' : 'move');
+  }, [attempt?.id, reveal, initialFen, replayIndex, visible, screen]);
+
   useEffect(() => {
     if (!launch || !visible) return;
     void start(true, launch.puzzleId, launch.collection).finally(onLaunchHandled);
@@ -216,6 +230,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     } catch (err) {
       if (mounted.current) {
         if (err instanceof ApiError && err.code === 'personal_collection_complete') {
+          playSound('complete');
           setCollectionFinished(err.message); onScreenChange('session'); onChanged();
         } else if (err instanceof ApiError && err.code === 'personal_current_remaining') {
           setFeedback(err.message); setFeedbackKind('neutral'); setFeedbackVersion(value => value + 1);
@@ -233,20 +248,25 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
       const result = await api<{ accepted: boolean; attempt: Attempt; reply_move: string | null; feedback: string }>(`/training/${attempt.id}/move`, { move: uci, elapsed_ms: elapsedMs });
       if (!mounted.current) return;
       const animate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const intermediate = new Chess(attempt.fen);
+      if (result.accepted) playSound(intermediate.move(uci).captured ? 'capture' : 'move');
+      else playSound('wrong');
       // The server has already accepted both moves. Show them separately for readability.
       if (result.accepted && result.reply_move && animate) {
-        const intermediate = new Chess(attempt.fen);
-        intermediate.move(uci);
         setPlayback({ fen: intermediate.fen(), last_move: uci }); setPhase('reply');
         await pause(550);
         if (!mounted.current) return;
       }
+      if (result.accepted && result.reply_move) playSound(intermediate.move(result.reply_move).captured ? 'capture' : 'move', animate ? 0 : 0.12);
       setAttempt(result.attempt); setPlayback(null); setPhase('idle'); setTimeSaveFailed(false);
       setFeedback(result.feedback); setFeedbackKind(result.accepted ? 'success' : 'wrong');
       setFeedbackVersion(value => value + 1);
       if (result.accepted && animate) await pause(240);
       if (!mounted.current) return;
-      if (result.attempt.status === 'completed') { setSessionSolved(value => value + 1); onChanged(); }
+      if (result.attempt.status === 'completed') {
+        playSound('complete', animate ? 0 : result.reply_move ? 0.28 : 0.16);
+        setSessionSolved(value => value + 1); onChanged();
+      }
     } catch (err) { if (mounted.current) { setPlayback(null); setError(errorText(err)); } }
     finally { actionPending.current = false; if (mounted.current) { setBusy(false); setPhase('idle'); } }
   }
@@ -311,7 +331,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   />;
   return <section className="training-session" aria-label="Решение позиции">
     <div className={`board-column ${attempt.status === 'completed' ? 'board-solved' : ''}`}>
-      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Время решения, включая свёрнутый браузер. Настройки и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
+      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><SoundToggle /><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Время решения, включая свёрнутый браузер. Настройки и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
       <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${puzzleLabel(attempt.puzzle_id)} · ${attempt.rating_estimated ? '≈ ' : ''}${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
         <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>
@@ -347,6 +367,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
 }
 
 export default function App() {
+  useEffect(listenForSoundGestures, []);
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'training' | 'stats' | 'library' | 'analysis'>('training');
@@ -385,7 +406,7 @@ export default function App() {
   async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); catalogVersion.current++; setCollection('lichess'); setUser(null); setMeta(null); setStats(null); setError(''); setTrainingScreen('setup'); setTab('training'); setPracticeLaunch(null); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
   if (loading) return <div className="app-loading"><Brand subtitle /><Spinner /><p>Готовим доску…</p></div>;
   if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); setTrainingScreen('setup'); setTab('training'); setPracticeLaunch(null); }} />;
-  return <div className={`app-shell ${inSession ? 'session-shell' : ''}`}>{!inSession && <header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — главная"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Главная</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button><button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}><Library size={16} />Мои партии</button><button className={tab === 'analysis' ? 'active' : ''} onClick={() => setTab('analysis')}><BarChart3 size={16} />Анализ</button></nav><div className="account"><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>}
+  return <div className={`app-shell ${inSession ? 'session-shell' : ''}`}>{!inSession && <header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — главная"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Главная</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button><button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}><Library size={16} />Мои партии</button><button className={tab === 'analysis' ? 'active' : ''} onClick={() => setTab('analysis')}><BarChart3 size={16} />Анализ</button></nav><div className="account"><SoundToggle /><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>}
     <main className="main-content">{error && <ErrorNotice message={error} close={() => setError('')} />}{!meta && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}><Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} screen={trainingScreen} onScreenChange={setTrainingScreen} collection={collection} onCollectionChange={changeCollection} launch={practiceLaunch} onLaunchHandled={() => setPracticeLaunch(null)} onOpenLibrary={() => setTab('library')} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}<div hidden={tab !== 'library'}><GameLibrary visible={tab === 'library'} onChanged={refreshCatalog} onPractice={practicePuzzle} /></div><div hidden={tab !== 'analysis'}><GameAnalysis visible={tab === 'analysis'} onDataChanged={refreshCatalog} /></div></main>
     {!inSession && <footer className="footer"><span>тактика<span className="brand-dot">.</span> <span className="footer-separator">/</span> Практика, которая остаётся с вами.</span><span><a href="https://database.lichess.org/#puzzles" target="_blank" rel="noreferrer">Открытая база Lichess · CC0</a><span className="footer-separator">·</span><a href="/pieces/NOTICE.txt" target="_blank" rel="noreferrer">Фигуры</a></span></footer>}
   </div>;

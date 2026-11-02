@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
+import { playSound } from './sound';
 
 const pieceNames: Record<string, string> = { p: 'пешка', n: 'конь', b: 'слон', r: 'ладья', q: 'ферзь', k: 'король' };
 const positionKey = (fen: string) => fen.split(' ').slice(0, 4).join(' ');
@@ -24,7 +25,6 @@ export default function AnalysisBoard({ fen, side, lastMove, identity, visible }
         || !previous.visible || !visible || document.visibilityState !== 'visible'
         || positionKey(previous.fen) === positionKey(currentFen)) return;
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (motion.matches) return;
 
     // Only one legal move can travel between squares. Selecting another game
     // or jumping over several moves shows the requested position immediately.
@@ -36,6 +36,8 @@ export default function AnalysisBoard({ fen, side, lastMove, identity, visible }
       backwards = true;
     }
     if (!transition) return;
+    playSound(transition.captured ? 'capture' : 'move');
+    if (motion.matches) return;
 
     const paths: { from: Square; to: Square }[] = [{ from: transition.from, to: transition.to }];
     if (transition.isKingsideCastle() || transition.isQueensideCastle()) {
