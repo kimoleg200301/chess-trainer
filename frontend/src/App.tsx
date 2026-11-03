@@ -216,13 +216,15 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
 
   async function start(newSession = false, puzzleId?: string, source = collection) {
     if (actionPending.current || analysisBusy) return;
-    if (!puzzleId && minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
+    // Hidden settings from another collection must never restrict personal tasks.
+    const unfiltered = source === 'personal' || !!puzzleId;
+    if (!unfiltered && minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
     actionPending.current = true;
     timer.pause();
     if (puzzleId) { setTheme(''); setMode('practice'); }
     setShowSkip(false); setReplayPlaying(false); setCollectionFinished(null); setBusy(true); setError('');
     try {
-      const data = await api<Attempt>('/training/start', { theme: puzzleId ? null : theme || null, min_rating: minRating, max_rating: maxRating, mode: puzzleId ? 'practice' : mode, collection: source, ...(puzzleId ? { puzzle_id: puzzleId } : {}), ...(!newSession && !puzzleId && attempt ? { exclude_attempt_id: attempt.id } : {}) });
+      const data = await api<Attempt>('/training/start', { theme: unfiltered ? null : theme || null, min_rating: unfiltered ? 0 : minRating, max_rating: unfiltered ? 4000 : maxRating, mode: unfiltered ? 'practice' : mode, collection: source, ...(puzzleId ? { puzzle_id: puzzleId } : {}), ...(!newSession && !puzzleId && attempt ? { exclude_attempt_id: attempt.id } : {}) });
       if (!mounted.current) return;
       setAttempt(data); setInitialFen(data.starting_fen || data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null); setTimeSaveFailed(false);
       if (newSession) setSessionSolved(0);
@@ -232,7 +234,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
       if (mounted.current) {
         if (err instanceof ApiError && err.code === 'personal_collection_complete') {
           playSound('complete');
-          setCollectionFinished(err.message); onScreenChange('session'); onChanged();
+          setCollectionFinished(source === 'personal' ? 'Все задачи из ваших партий пройдены. Добавьте новые партии или откройте знакомую задачу для повторного разбора в разделе «Мои партии».' : err.message); onScreenChange('session'); onChanged();
         } else if (err instanceof ApiError && err.code === 'personal_current_remaining') {
           setFeedback(err.message); setFeedbackKind('neutral'); setFeedbackVersion(value => value + 1);
         } else setError(errorText(err));
@@ -319,12 +321,12 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     <span className="training-finished-icon"><CheckCircle2 size={36} /></span>
     <p className="training-finished-title">Все выбранные задачи пройдены</p>
     <p role="status">{collectionFinished}</p>
-    <p className="muted">Пополните коллекцию в разделе «Мои партии». Вернуться к знакомым позициям можно в режиме «Повторение».</p>
+    {collection !== 'personal' && <p className="muted">Пополните коллекцию в разделе «Мои партии». Вернуться к знакомым позициям можно в режиме «Повторение».</p>}
     <div className="training-finished-actions"><button className="button secondary" onClick={openSetup}><ArrowLeft size={16} /> К настройкам</button><button className="button primary" onClick={() => { openSetup(); onOpenLibrary(); }}><Library size={16} /> Мои партии</button></div>
   </section>;
   if (screen === 'setup' || !attempt) return <TrainingSetup
     meta={meta} stats={stats} theme={theme} onThemeChange={setTheme}
-    collection={collection} onCollectionChange={value => { setTheme(''); onCollectionChange(value); }}
+    collection={collection} onCollectionChange={value => { setTheme(''); setError(''); onCollectionChange(value); }}
     minRating={minRating} maxRating={maxRating} onMinRatingChange={setMinRating} onMaxRatingChange={setMaxRating}
     mode={mode} onModeChange={setMode} busy={busy || analysisBusy} error={error} onDismissError={() => setError('')}
     onStart={() => void start(true)} sessionSolved={sessionSolved}
