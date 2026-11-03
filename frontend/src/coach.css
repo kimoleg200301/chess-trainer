@@ -1,0 +1,371 @@
+.coach-dashboard, .coach-setup { --coach-ink: #254536; --coach-muted: #637565; --coach-soft: #edf3e7; }
+.coach-dashboard button, .coach-setup button { touch-action: manipulation; }
+.coach-setup { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(310px,.85fr); gap: clamp(30px,6vw,90px); max-width: 1080px; margin: 18px auto 35px; align-items: center; }
+.coach-intro h1 { font-size: clamp(35px,4.4vw,53px); line-height: 1.16; letter-spacing: -1.8px; margin: 21px 0; }
+.coach-intro h1 span { color: #6c8756; }
+.coach-intro > p { color: var(--coach-muted); line-height: 1.85; font-size: 14px; max-width: 490px; }
+.coach-steps { display: grid; gap: 22px; margin-top: 30px; }
+.coach-steps > div { display: grid; grid-template-columns: 39px 1fr; column-gap: 12px; }
+.coach-steps > div > span { grid-row: 1 / 3; width: 37px; height: 37px; display: grid; place-items: center; background: #e9efdf; border-radius: 10px; color: #607b4f; font-size: 12px; font-weight: 650; }
+.coach-steps strong { font-size: 13px; font-weight: 600; }
+.coach-steps p { color: var(--coach-muted); line-height: 1.65; font-size: 12px; margin-top: 5px; }
+.coach-start-form { padding: 32px; box-shadow: 0 14px 50px #2c4c2e07; }
+.coach-form-icon { width: 54px; height: 54px; display: grid; place-items: center; background: #eef3e6; color: #67814f; border-radius: 16px; margin-bottom: 20px; }
+.coach-start-form h2 { font-size: 25px; letter-spacing: -.7px; margin-bottom: 8px; }
+.coach-start-form > p { color: var(--coach-muted); font-size: 12px; line-height: 1.75; }
+.coach-start-form > label { font-size: 12px; margin: 23px 0 8px; }
+.coach-start-form input, .coach-start-form select { font-size: 14px; }
+.coach-start-form > .coach-field-note { margin: 12px 0 22px; font-size: 11px; }
+.coach-start-form > .button { width: 100%; min-height: 49px; }
+.coach-start-form > .button > svg:last-child { margin-left: auto; }
+.coach-custom-control { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.coach-custom-control label { font-size: 11px; color: var(--coach-muted); }
+.coach-custom-control input { margin-top: 7px; }
+.coach-privacy { display: flex; gap: 9px; margin-top: 20px; font-size: 10px; line-height: 1.8; color: var(--coach-muted); }
+.coach-privacy svg { flex-shrink: 0; margin-top: 2px; }
+.coach-placeholder { display: flex; gap: 20px; flex-direction: column; align-items: center; justify-content: center; min-height: 330px; max-width: 650px; margin: 40px auto; text-align: center; }
+.coach-placeholder h1 { font-size: 22px; }
+.coach-placeholder > svg { color: #80996a; }
+.coach-dashboard-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin: 0 0 25px; }
+.coach-dashboard-heading h1 { font-size: clamp(23px,3.1vw,31px); letter-spacing: -.9px; margin: 9px 0; line-height: 1.3; }
+.coach-dashboard-heading p { font-size: 12px; color: var(--coach-muted); display: flex; gap: 10px; flex-wrap: wrap; }
+.coach-dashboard-heading p strong { font-weight: 550; color: var(--coach-ink); }
+.coach-dashboard-controls { display: flex; gap: 8px; flex-shrink: 0; }
+.coach-dashboard-controls .button { padding: 10px 12px; font-size: 11px; min-height: 40px; }
+.coach-analysis-status { display: flex; align-items: center; gap: 13px; padding: 15px 18px; background: #eff3e9; border: 1px solid #e0e8d7; border-radius: 12px; margin-bottom: 20px; }
+.coach-analysis-status.paused { background: #f4f2ea; border-color: #e8e2d3; }
+.coach-status-icon { display: grid; place-items: center; color: #64834e; width: 29px; flex-shrink: 0; }
+.coach-analysis-status > div { flex: 1; min-width: 0; }
+.coach-analysis-status strong { display: block; font-size: 12px; line-height: 1.6; }
+.coach-analysis-status p { font-size: 11px; line-height: 1.7; color: #62735b; margin-top: 2px; }
+.coach-analysis-meter { margin-top: 10px; height: 4px; background: #dce5d2; border-radius: 5px; overflow: hidden; }
+.coach-analysis-meter > span { display: block; height: 100%; border-radius: inherit; background: #728d5c; transition: width .35s; }
+.coach-progress-number { color: #567345; font-size: 16px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.coach-tabs { display: flex; gap: 5px; border-bottom: 1px solid var(--border); margin-bottom: 25px; }
+.coach-tabs > button { border: 0; background: transparent; padding: 12px 18px 14px; font-size: 13px; color: #6a7a65; min-height: 45px; position: relative; display: flex; gap: 7px; align-items: center; }
+.coach-tabs > button[aria-selected=true] { color: #284f38; font-weight: 650; }
+.coach-tabs > button[aria-selected=true]::after { content: ''; position: absolute; height: 3px; background: #6f8b56; bottom: -1px; left: 14px; right: 14px; border-radius: 3px 3px 0 0; }
+.coach-tabs > button > span { background: #e9efdf; border-radius: 4px; font-size: 10px; padding: 2px 5px; }
+.coach-plan-grid { display: grid; grid-template-columns: minmax(270px,.95fr) minmax(0,1.25fr); gap: 24px; align-items: stretch; }
+.coach-daily-card { background: #294b38; color: #fff; border-radius: 17px; padding: clamp(25px,3vw,35px); display: flex; flex-direction: column; position: relative; overflow: hidden; }
+.coach-daily-card::before { content: ''; position: absolute; width: 200px; height: 200px; border-radius: 50%; border: 1px solid #bbd09416; top: -110px; right: -45px; pointer-events: none; }
+.coach-daily-eyebrow { display: flex; align-items: center; gap: 9px; color: #c0d3a7; font-size: 10px; letter-spacing: 1px; font-weight: 550; }
+.coach-daily-card h2 { font-size: clamp(27px,3.4vw,39px); letter-spacing: -1.1px; line-height: 1.2; margin: 23px 0 18px; }
+.coach-daily-card > p { color: #e0e9d7; line-height: 1.85; font-size: 12px; margin-bottom: 23px; }
+.coach-daily-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 11px; color: #d0dfc0; margin-top: auto; margin-bottom: 20px; }
+.coach-daily-meta > span { display: flex; align-items: center; gap: 6px; }
+.coach-daily-card > .coach-daily-start { background: #dbe7bc; color: #233e2b; border: 1px solid #dbe7bc; min-height: 48px; font-weight: 600; }
+.coach-daily-start:hover:not(:disabled) { background: #e4edce; }
+.coach-daily-start > svg:last-child { margin-left: auto; }
+.coach-daily-card > small { color: #c4d6b3; font-size: 10px; text-align: center; line-height: 1.7; margin-top: 13px; }
+.coach-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.coach-section-heading h2 { font-size: 16px; letter-spacing: -.3px; }
+.coach-section-heading > span { display: flex; gap: 7px; align-items: center; font-size: 11px; color: #6c7a62; }
+.coach-section-heading > div { display: flex; align-items: center; gap: 3px; }
+.coach-section-heading small { font-size: 10px; color: #6c7a62; min-width: 28px; text-align: center; }
+.coach-priorities { display: flex; flex-direction: column; gap: 12px; }
+.coach-priorities > .coach-section-heading { margin: 4px 0 2px; }
+.coach-priority-card { width: 100%; text-align: left; border: 1px solid var(--border); background: #fff; border-radius: 12px; padding: 18px; display: flex; align-items: flex-start; gap: 13px; color: #2e4836; flex: 1; }
+.coach-priority-card:hover { border-color: #b9cba8; box-shadow: 0 4px 17px #2e4a2308; }
+.coach-priority-number { color: #789362; font: 650 13px 'Manrope',sans-serif; width: 23px; padding-top: 2px; flex-shrink: 0; }
+.coach-priority-card > div { flex: 1; min-width: 0; }
+.coach-priority-card > div > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.coach-priority-card h3 { font-size: 14px; letter-spacing: -.2px; }
+.coach-priority-card p { font-size: 11px; line-height: 1.7; color: #63745d; margin: 7px 0; }
+.coach-priority-card small { font-size: 10px; color: #63745d; }
+.coach-priority-card > svg { flex-shrink: 0; align-self: center; color: #859c71; }
+.coach-skill-status { font-size: 9px; font-weight: 500; border-radius: 5px; padding: 4px 6px; white-space: nowrap; width: fit-content; }
+.coach-skill-status.focus { color: #85602f; background: #f8efdd; }
+.coach-skill-status.reinforce { color: #426e44; background: #e8f2e3; }
+.coach-skill-status.monitor { color: #4d6e6b; background: #e9f1ed; }
+.coach-skill-status.insufficient { color: #657260; background: #f0f2eb; }
+.coach-all-skills { justify-content: flex-end; min-height: 36px; font-size: 11px; }
+.coach-plan-note { grid-column: 1 / -1; padding: 17px 19px; border: 1px solid #e5e8da; border-radius: 11px; background: #f1f3e9; display: flex; gap: 12px; color: #72845d; }
+.coach-plan-note svg { flex-shrink: 0; margin-top: 2px; }
+.coach-plan-note p { font-size: 11px; line-height: 1.8; color: #62735a; }
+.coach-plan-note strong { font-weight: 600; color: #405b38; }
+.coach-awaiting { display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; gap: 15px; padding: 35px 24px; flex: 1; min-height: 170px; }
+.coach-awaiting > svg { color: #7d9964; }
+.coach-awaiting h3 { font-size: 16px; }
+.coach-awaiting p { font-size: 12px; color: var(--coach-muted); line-height: 1.85; max-width: 430px; }
+.coach-skills-layout { display: grid; grid-template-columns: minmax(225px,.75fr) minmax(0,1.5fr); gap: 25px; align-items: start; }
+.coach-skill-picker { display: flex; flex-direction: column; gap: 5px; max-height: 620px; overflow-y: auto; scrollbar-width: thin; padding: 3px; }
+.coach-skill-picker > button { display: grid; grid-template-columns: 1fr 20px; gap: 7px 5px; border: 1px solid transparent; background: transparent; border-radius: 10px; text-align: left; color: #435a3c; padding: 11px 13px; min-height: 65px; }
+.coach-skill-picker > button > span { font-size: 12px; font-weight: 550; }
+.coach-skill-picker > button > svg { grid-column: 2; grid-row: 1 / 3; align-self: center; opacity: .35; }
+.coach-skill-picker > button.selected { background: #eaf0e1; border-color: #dce6cf; color: #314e2e; }
+.coach-skill-picker > button:hover { background: #eef2e7; }
+.coach-skill-picker > button.selected > svg { opacity: 1; }
+.coach-skill-detail { padding: 27px; }
+.coach-skill-detail > .coach-section-heading { margin-bottom: 14px; }
+.coach-skill-detail > .coach-section-heading > svg { color: #7e9864; }
+.coach-skill-detail h2 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; }
+.coach-skill-description { color: #63745f; line-height: 1.8; font-size: 12px; margin: 12px 0 18px; }
+.coach-recommendation { padding: 15px; border-radius: 9px; background: #f0f4e8; display: flex; gap: 10px; }
+.coach-recommendation svg { color: #7e955b; flex-shrink: 0; margin-top: 2px; }
+.coach-recommendation p { font-size: 12px; color: #4b663d; line-height: 1.8; }
+.coach-practice-tip { font-size: 12px; line-height: 1.8; color: #526b48; margin: 17px 0; }
+.coach-evidence { padding: 17px; border: 1px solid #e5e8dc; border-radius: 10px; background: #fcfcf8; margin-top: 20px; }
+.coach-evidence-move { font-size: 12px; margin: 10px 0 7px; color: #617358; }
+.coach-evidence-move strong { color: #354f2d; }
+.coach-evidence-explanation { max-height: 95px; overflow: auto; scrollbar-width: thin; color: #65765e; font-size: 11px; line-height: 1.8; }
+.coach-evidence-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 13px; }
+.coach-evidence-actions .button { min-height: 40px; font-size: 11px; padding: 9px 12px; }
+.coach-evidence-actions > a { padding: 10px; display: flex; color: #668155; }
+.coach-skill-start { margin-top: 22px; width: 100%; }
+.coach-skill-start > svg:last-child { margin-left: auto; }
+.coach-small-note { font-size: 11px; color: #63745b; line-height: 1.8; margin-top: 16px; }
+.coach-comparison { margin-top: 23px; }
+.coach-comparison > p:first-child { font-size: 11px; color: #5a704f; margin-bottom: 15px; }
+.coach-comparison-row { display: grid; grid-template-columns: 89px 1fr 40px; gap: 12px; align-items: center; margin-bottom: 14px; }
+.coach-comparison-row > span { font-size: 11px; color: #617358; }
+.coach-comparison-row > div { height: 11px; border-radius: 5px; background: #eff2e9; overflow: hidden; }
+.coach-comparison-row i { display: block; height: 100%; border-radius: 5px; background: #b1bda2; }
+.coach-comparison-row.recent i { background: #6e8e55; }
+.coach-comparison-row strong { font-size: 14px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.coach-comparison > small { color: #6b7962; font-size: 10px; line-height: 1.8; }
+.coach-training-counts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; padding-top: 22px; border-top: 1px solid var(--border); margin-top: 22px; }
+.coach-training-counts strong { display: block; font-size: 24px; font-weight: 600; }
+.coach-training-counts span { display: block; color: #6a795f; font-size: 10px; line-height: 1.6; margin-top: 4px; }
+.coach-games-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 19px; border-bottom: 1px solid var(--border); }
+.coach-games-toolbar > p { font-size: 11px; line-height: 1.7; max-width: 320px; color: #6b7c60; }
+.coach-cohort-switch { padding: 4px; background: #f2f4ec; border-radius: 9px; display: flex; gap: 4px; }
+.coach-cohort-switch button { padding: 9px 12px; min-height: 38px; border: 0; background: transparent; border-radius: 6px; color: #65775a; font-size: 11px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.coach-cohort-switch button.selected { background: #fff; color: #38552d; box-shadow: 0 1px 5px #3c502b0a; }
+.coach-cohort-switch button > span { background: #e9efdf; font-size: 9px; border-radius: 3px; padding: 2px 4px; }
+.coach-game-row { display: flex; align-items: center; gap: 13px; padding: 15px 0; border-bottom: 1px solid #edf0e6; }
+.coach-game-result { width: 31px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: #eef1e8; color: #657b55; flex-shrink: 0; font-size: 13px; font-weight: 600; }
+.coach-game-result.win { background: #e9f2e0; color: #4c7337; }
+.coach-game-result.loss { background: #f5ece2; color: #8e6742; }
+.coach-game-row > div { flex: 1; min-width: 0; }
+.coach-game-row strong { display: block; font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
+.coach-game-row strong > span { font-weight: 400; color: #859478; }
+.coach-game-row small { display: block; color: #6c7a62; margin-top: 5px; font-size: 10px; }
+.coach-game-status { display: flex; align-items: center; gap: 6px; color: #668153; font-size: 10px; white-space: nowrap; }
+.coach-game-row > a { color: #799169; padding: 8px; flex-shrink: 0; display: flex; }
+.coach-game-error { color: #986337; font-size: 10px; line-height: 1.6; margin-top: 6px; }
+.coach-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 17px; }
+.coach-pagination .button { min-height: 38px; padding: 8px 11px; font-size: 11px; }
+.coach-pagination > span { color: #6c7a62; font-size: 11px; }
+.coach-sync-note { margin: 23px 2px 3px; display: flex; align-items: flex-start; gap: 8px; font-size: 10px; line-height: 1.8; color: #67795d; }
+.coach-sync-note .tiny-dot { margin-top: 6px; flex-shrink: 0; }
+.coach-sync-note .inactive { background: #b4a378; }
+.coach-fix-setup { margin: 0 0 16px; }
+.coach-session-summary { display: flex; align-items: center; gap: 12px; margin: 18px 0; padding: 14px 17px; border: 1px solid #d9e6cb; border-radius: 10px; background: #edf4e7; color: #587447; }
+.coach-session-summary > svg, .coach-session-summary > button { flex-shrink: 0; }
+.coach-session-summary p { font-size: 12px; line-height: 1.8; flex: 1; }
+.coach-entry { display: flex; align-items: center; gap: 13px; padding: 15px 18px; margin: 0 0 23px; border: 1px solid #dce7d1; border-radius: 12px; background: #eff4e7; width: 100%; text-align: left; color: #426439; }
+.coach-entry > svg { flex-shrink: 0; }
+.coach-entry > div { flex: 1; }
+.coach-entry strong { display: block; font-size: 13px; font-weight: 600; }
+.coach-entry small { display: block; font-size: 11px; line-height: 1.7; color: #647959; margin-top: 3px; }
+
+/* A lesson is one viewport: only long feedback scrolls, controls stay visible. */
+.app-shell.coach-practice-shell .main-content { padding: 0; min-height: 0; height: 100dvh; max-width: none; overflow: hidden; }
+.coach-session { height: 100dvh; max-width: 1200px; margin: 0 auto; display: grid; grid-template-rows: 55px minmax(0,1fr) 78px; padding-top: env(safe-area-inset-top,0px); }
+.coach-session-toolbar { display: flex; align-items: center; gap: 16px; padding: 4px 24px; min-width: 0; }
+.coach-session-toolbar > .text-button { min-height: 44px; flex-shrink: 0; gap: 7px; }
+.coach-session-topic { flex: 1; text-align: center; font-size: 12px; font-weight: 550; color: #506947; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coach-session-layout { min-height: 0; display: grid; grid-template-columns: minmax(0,1.4fr) minmax(260px,.8fr); gap: 26px; align-items: start; padding: 9px 24px 16px; }
+.coach-session-board-column { min-height: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.coach-board-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 37px; margin-bottom: 8px; width: 100%; max-width: 630px; color: #62775a; font-size: 11px; }
+.coach-board-meta > span { display: flex; align-items: center; gap: 6px; }
+.coach-board-meta > .attempt-timer { padding: 6px 8px; font-size: 12px; }
+.coach-board-wrap { width: min(100%,calc(100dvh - 240px)); max-width: 630px; }
+.coach-board-wrap .board-frame { border-width: 5px; }
+.coach-board-done .board-frame { box-shadow: 0 0 0 2px #a8c38d,0 8px 25px #243b270b; }
+.coach-session-underboard { display: flex; justify-content: space-between; gap: 10px; color: #65765e; font-size: 10px; min-height: 28px; align-items: center; width: 100%; max-width: 630px; }
+.coach-session-instruction { margin-top: 45px; align-self: stretch; display: flex; flex-direction: column; min-height: 0; padding: 20px; background: #fff; border: 1px solid #e1e7d9; border-radius: 13px; max-height: calc(100dvh - 245px); }
+.coach-session-instruction.wrong { border-color: #e4cda8; }
+.coach-session-instruction.success { border-color: #c9deb8; }
+.coach-lesson-heading { display: flex; align-items: center; gap: 11px; margin-bottom: 18px; flex-shrink: 0; }
+.coach-lesson-heading > span { width: 39px; height: 39px; display: grid; place-items: center; background: #edf3e5; border-radius: 11px; color: #708e55; flex-shrink: 0; }
+.coach-lesson-heading small { font-size: 8px; letter-spacing: 1px; color: #6a7e5c; display: block; margin-bottom: 5px; }
+.coach-lesson-heading h1 { font-size: 18px; line-height: 1.3; letter-spacing: -.5px; }
+.coach-lesson-text { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; min-height: 0; flex: 1; font-size: 12px; color: #536d48; line-height: 1.8; padding-right: 3px; }
+.coach-lesson-text > p + p { margin-top: 11px; }
+.coach-lesson-text > .error-notice { margin: 0; font-size: 11px; padding: 9px 11px; }
+.coach-time-target { display: flex; align-items: flex-start; gap: 6px; font-size: 10px; color: #7a785d; line-height: 1.7; margin-top: 14px; flex-shrink: 0; }
+.coach-time-target svg { flex-shrink: 0; margin-top: 2px; }
+.coach-time-warning { color: #966c3d; font-size: 10px; }
+.coach-session-detail { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 10px; color: #6c7f60; line-height: 1.7; border-top: 1px solid #e9ede1; margin-top: 17px; padding-top: 13px; flex-shrink: 0; }
+.coach-session-detail a { display: flex; padding: 6px; color: #678454; }
+.coach-solution { padding-top: 14px; flex-shrink: 0; }
+.coach-solution-label { display: flex; justify-content: space-between; font-size: 10px; color: #6a7b60; margin-bottom: 8px; }
+.coach-solution-moves { display: flex; align-content: flex-start; gap: 6px; flex-wrap: wrap; max-height: 92px; overflow: auto; scrollbar-width: thin; padding: 2px; }
+.coach-solution-moves > button { min-width: 38px; min-height: 33px; font-size: 12px; background: #f0f4e8; color: #4c693d; border: 1px solid #e1e8d7; border-radius: 6px; padding: 6px 8px; }
+.coach-solution-moves > button.current { background: #dae9c7; border-color: #9fba86; color: #36552c; }
+.coach-session-actions { border-top: 1px solid #e0e7d7; background: #f7f8f3f5; padding: 12px 24px max(12px,env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: center; box-shadow: 0 -6px 24px #3a502204; z-index: 6; }
+.coach-session-actions-inner { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 630px; }
+.coach-session-actions-inner > .button { flex: 1; min-height: 46px; }
+.coach-session-actions-inner > .coach-skip { flex: 0 0 48px; padding: 12px; }
+.coach-replay-buttons { display: flex; gap: 6px; }
+.coach-replay-buttons > .button { min-width: 44px; min-height: 46px; padding: 10px; }
+.coach-session-actions-inner > .coach-next { margin-left: auto; max-width: 270px; }
+
+@media(max-width:1050px) {
+  .coach-dashboard-heading { flex-wrap: wrap; }
+  .coach-dashboard-controls { flex-shrink: 1; }
+  .coach-plan-grid { gap: 18px; }
+  .coach-priority-card { padding: 14px; gap: 9px; }
+  .coach-session-layout { gap: 18px; grid-template-columns: minmax(0,1.2fr) minmax(250px,.8fr); }
+  .coach-session-instruction { padding: 16px; }
+  .coach-lesson-heading h1 { font-size: 16px; }
+  .coach-setup { gap: 30px; }
+  .coach-start-form { padding: 25px; }
+}
+@media(max-width:800px) {
+  .coach-setup { grid-template-columns: 1fr; max-width: 600px; margin: 0 auto 20px; gap: 25px; }
+  .coach-intro h1 { font-size: 39px; margin: 16px 0; }
+  .coach-intro h1 br { display: none; }
+  .coach-intro > p { font-size: 12px; }
+  .coach-steps { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 15px; margin-top: 23px; }
+  .coach-steps > div { display: block; }
+  .coach-steps > div > span { width: 30px; height: 30px; margin-bottom: 10px; font-size: 11px; }
+  .coach-steps strong { font-size: 11px; line-height: 1.7; display: block; }
+  .coach-steps p { font-size: 10px; }
+  .coach-start-form { padding: 24px; }
+  .coach-form-icon { display: none; }
+  .coach-plan-grid { grid-template-columns: minmax(250px,1fr) minmax(0,1fr); }
+  .coach-daily-card { padding: 24px; }
+  .coach-daily-card h2 { font-size: 30px; }
+  .coach-priority-card > div > div { gap: 5px; }
+  .coach-priority-card h3 { font-size: 12px; }
+  .coach-priority-number { display: none; }
+  .coach-skills-layout { grid-template-columns: minmax(180px,.7fr) minmax(0,1.3fr); gap: 15px; }
+  .coach-skill-detail { padding: 20px; }
+  .coach-skill-picker { max-height: 590px; }
+  .coach-skill-picker > button { padding: 10px; }
+  .coach-skill-picker > button > span { font-size: 11px; }
+  .coach-games-toolbar { flex-wrap: wrap; gap: 12px; }
+  .coach-games-toolbar > p { max-width: none; }
+  .coach-session { grid-template-rows: 44px minmax(0,1fr) calc(67px + env(safe-area-inset-bottom,0px)); }
+  .coach-session-toolbar { padding: 0 12px; gap: 10px; }
+  .coach-session-toolbar .text-button { font-size: 11px; }
+  .coach-session-topic { font-size: 11px; }
+  .coach-session-layout { display: flex; flex-direction: column; gap: 8px; align-items: center; padding: 4px 12px 9px; }
+  .coach-session-board-column { width: min(100%,620px); flex-shrink: 0; }
+  .coach-board-meta { min-height: 31px; margin-bottom: 5px; font-size: 10px; gap: 5px; }
+  .coach-board-meta > .attempt-timer { font-size: 11px; padding: 5px 7px; }
+  .coach-board-wrap { width: min(100%,calc(100dvh - 335px)); }
+  .coach-session-underboard { font-size: 9px; min-height: 24px; }
+  .coach-session-instruction { margin: 0; padding: 11px 13px; width: min(100%,620px); min-height: 125px; max-height: none; align-self: center; flex: 1; }
+  .coach-lesson-heading { gap: 8px; margin-bottom: 7px; }
+  .coach-lesson-heading > span { width: 29px; height: 29px; border-radius: 8px; }
+  .coach-lesson-heading > span > svg { width: 17px; }
+  .coach-lesson-heading h1 { font-size: 13px; letter-spacing: -.1px; }
+  .coach-lesson-heading small { font-size: 7px; margin-bottom: 3px; letter-spacing: .7px; }
+  .coach-lesson-text { font-size: 11px; line-height: 1.7; }
+  .coach-lesson-text > p + p { margin-top: 7px; }
+  .coach-time-target { margin-top: 6px; font-size: 9px; }
+  .coach-session-detail { font-size: 9px; margin-top: 6px; padding-top: 5px; }
+  .coach-session-detail a { padding: 0; }
+  .coach-solution { padding-top: 6px; }
+  .coach-solution-label { margin-bottom: 4px; font-size: 9px; }
+  .coach-solution-moves { flex-wrap: nowrap; max-height: 38px; }
+  .coach-solution-moves > button { font-size: 11px; min-width: 35px; min-height: 29px; padding: 4px 7px; flex-shrink: 0; }
+  .coach-session-actions { padding: 9px 12px max(9px,env(safe-area-inset-bottom)); }
+  .coach-session-actions-inner { gap: 8px; }
+  .coach-session-actions-inner > .button { font-size: 12px; padding: 10px 12px; min-height: 45px; }
+  .coach-session-actions-inner > .coach-skip { flex-basis: 46px; }
+  .coach-replay-buttons > .button { min-height: 45px; padding: 9px; }
+}
+@media(max-width:600px) {
+  .coach-dashboard-heading { margin-bottom: 17px; gap: 15px; }
+  .coach-dashboard-heading h1 { font-size: 24px; }
+  .coach-dashboard-heading .eyebrow { font-size: 8px; letter-spacing: 1.3px; }
+  .coach-dashboard-heading p { font-size: 11px; gap: 7px; }
+  .coach-dashboard-controls { width: 100%; }
+  .coach-dashboard-controls .button { min-height: 39px; font-size: 10px; }
+  .coach-dashboard-controls .button:first-child { flex: 1; }
+  .coach-analysis-status { padding: 12px; gap: 8px; margin-bottom: 15px; }
+  .coach-analysis-status p { font-size: 10px; }
+  .coach-analysis-status strong { font-size: 11px; }
+  .coach-progress-number { font-size: 13px; }
+  .coach-status-icon { width: 23px; }
+  .coach-tabs { gap: 0; margin-bottom: 18px; }
+  .coach-tabs > button { flex: 1; justify-content: center; padding: 11px 7px; font-size: 11px; }
+  .coach-tabs > button[aria-selected=true]::after { left: 8px; right: 8px; }
+  .coach-plan-grid { grid-template-columns: 1fr; gap: 20px; }
+  .coach-daily-card { padding: 25px; }
+  .coach-daily-card h2 { font-size: 31px; margin: 20px 0 15px; }
+  .coach-daily-card h2 br { display: none; }
+  .coach-daily-card > p { margin-bottom: 20px; }
+  .coach-priority-card { padding: 15px; }
+  .coach-priority-card h3 { font-size: 13px; }
+  .coach-priority-number { display: block; }
+  .coach-section-heading h2 { font-size: 15px; }
+  .coach-plan-note { padding: 13px; }
+  .coach-plan-note p { font-size: 10px; }
+  .coach-skills-layout { display: flex; flex-direction: column; gap: 15px; }
+  .coach-skill-picker { width: 100%; flex-direction: row; overflow-x: auto; overflow-y: hidden; max-height: none; padding: 3px 2px 8px; scroll-snap-type: x proximity; }
+  .coach-skill-picker > button { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; min-width: 135px; max-width: 180px; min-height: 67px; scroll-snap-align: start; border: 1px solid #e3e8d9; background: #fff; padding: 11px 13px; }
+  .coach-skill-picker > button > svg { display: none; }
+  .coach-skill-picker > button > span { white-space: nowrap; font-size: 11px; }
+  .coach-skill-picker > button.selected { background: #eaf0e1; }
+  .coach-skill-detail { padding: 20px; width: 100%; }
+  .coach-skill-detail h2 { font-size: 22px; }
+  .coach-skill-description { font-size: 11px; }
+  .coach-recommendation { padding: 12px; gap: 8px; }
+  .coach-recommendation p { font-size: 11px; }
+  .coach-practice-tip { font-size: 11px; }
+  .coach-evidence { padding: 12px; }
+  .coach-evidence .coach-section-heading > span { font-size: 10px; }
+  .coach-evidence .coach-section-heading > span > svg { display: none; }
+  .coach-games { padding: 16px; }
+  .coach-game-row { gap: 8px; }
+  .coach-game-row strong { font-size: 11px; }
+  .coach-game-row small { font-size: 9px; }
+  .coach-game-status { font-size: 9px; }
+  .coach-game-status svg { display: none; }
+  .coach-game-row > a { padding: 5px; }
+  .coach-game-row > a svg { width: 14px; }
+  .coach-game-result { width: 26px; height: 30px; font-size: 11px; }
+  .coach-cohort-switch { width: 100%; }
+  .coach-cohort-switch button { flex: 1; justify-content: center; font-size: 10px; }
+  .coach-session-summary { padding: 12px; gap: 8px; }
+  .coach-session-summary p { font-size: 10px; }
+  .coach-sync-note { font-size: 9px; }
+  .coach-entry { padding: 12px; gap: 10px; margin-bottom: 18px; }
+  .coach-entry strong { font-size: 12px; }
+  .coach-entry small { font-size: 10px; }
+}
+@media(max-width:380px) {
+  .coach-steps { gap: 11px; }
+  .coach-intro h1 { font-size: 34px; }
+  .coach-start-form { padding: 20px; }
+  .coach-session-topic { font-size: 10px; }
+  .coach-session-toolbar > .text-button span { font-size: 10px; }
+  .coach-replay-buttons { gap: 4px; }
+  .coach-replay-buttons > .button { min-width: 39px; }
+}
+@media(max-height:620px) and (max-width:800px) {
+  .coach-board-wrap { width: min(100%,calc(100dvh - 310px)); }
+  .coach-session-instruction { min-height: 103px; padding: 8px 11px; }
+  .coach-session-instruction .coach-lesson-heading { margin-bottom: 5px; }
+  .coach-lesson-heading small { display: none; }
+  .coach-session-instruction .coach-lesson-heading > span { width: 24px; height: 24px; }
+  .coach-session-detail { display: none; }
+  .coach-time-target { margin-top: 3px; }
+}
+@media(max-height:700px) and (max-width:599px) {
+  .coach-session-review .coach-board-wrap { width: min(100%,calc(100dvh - 365px)); }
+  .coach-session-review .coach-session-detail { display: none; }
+  .coach-session-review .coach-lesson-text { min-height: 34px; }
+}
+@media(max-height:540px) and (min-width:600px) {
+  .coach-session { grid-template-rows: 43px minmax(0,1fr) 63px; }
+  .coach-session-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(240px,1fr); gap: 15px; padding: 3px 18px 6px; }
+  .coach-session-board-column { width: 100%; }
+  .coach-board-wrap { width: min(100%,calc(100dvh - 176px)); }
+  .coach-board-meta { min-height: 29px; margin-bottom: 4px; font-size: 9px; }
+  .coach-session-underboard { min-height: 22px; font-size: 9px; }
+  .coach-session-instruction { align-self: stretch; margin-top: 33px; max-height: none; padding: 12px; }
+  .coach-lesson-heading { margin-bottom: 8px; }
+  .coach-lesson-heading h1 { font-size: 14px; }
+  .coach-lesson-heading small { display: none; }
+  .coach-lesson-text { font-size: 11px; }
+  .coach-session-detail { margin-top: 7px; padding-top: 6px; }
+  .coach-session-actions { padding: 8px 16px; }
+  .coach-session-actions-inner > .button, .coach-replay-buttons > .button { min-height: 44px; }
+}

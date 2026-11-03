@@ -64,7 +64,7 @@ class AnalysisWorker:
             self.stopping.wait(0.2 if progressed else 2)
 
     def run_once(self) -> bool:
-        from . import game_analysis_api, imports_api
+        from . import game_analysis_api, imports_api, coach_worker
         targets = ((ImportJob, imports_api.ANALYSIS_VERSION, imports_api.process_step),
                    (GameAnalysis, game_analysis_api.ANALYSIS_VERSION, game_analysis_api.process_step))
         # A transaction-scoped coordinator lock also works with multiple API
@@ -78,6 +78,8 @@ class AnalysisWorker:
                     model.background_requested.is_(True), model.status.in_(["ready", "running"]),
                     model.analysis_version == version)).all()
                 pending.extend((row.updated_at, row.id, row.user_id, process) for row in rows)
+            pending.extend((row.updated_at, row.id, row.user_id, coach_worker.process_step)
+                           for row in coach_worker.pending_profiles(coordinator))
             # Oldest checkpoint first prevents a long batch starving a report.
             for _, record_id, user_id, process in sorted(pending, key=lambda item: item[0]):
                 if self.stopping.is_set():

@@ -7,6 +7,8 @@ the moving player's point of view; they are never a puzzle difficulty rating.
 from __future__ import annotations
 
 import io
+import math
+import re
 import time
 from urllib.parse import urlparse
 
@@ -23,8 +25,46 @@ class _QuietBuilder(chess.pgn.GameBuilder):
         self.game.errors.append(error)
 
 
+def _clock_metadata(game: chess.pgn.Game) -> dict:
+    """Keep observations separate from durations; a missing clock breaks inference.
+
+    Chess.com clocks record the remaining seconds *after* increment is added.
+    The initial allotment is usable only for a game from the normal start.
+    Multi-stage and correspondence controls need a separate timing model.
+    """
+    control = game.headers.get("TimeControl", "")
+    match = re.fullmatch(r"([1-9]\d{0,5})(?:\+(\d{1,4}))?", control)
+    base = int(match[1]) if match else None
+    increment = int(match[2] or 0) if match else None
+    initial = game.board()
+    previous = {chess.WHITE: base, chess.BLACK: base} if initial.fen() == chess.STARTING_FEN else {
+        chess.WHITE: None, chess.BLACK: None,
+    }
+    clocks, before, spent = [], [], []
+    side = initial.turn
+    for node in game.mainline():
+        try:
+            clock = node.clock()
+        except (ValueError, OverflowError):
+            clock = None
+        if clock is not None and (not math.isfinite(clock) or clock < 0):
+            clock = None
+        prior = previous[side]
+        elapsed = prior + increment - clock if prior is not None and increment is not None and clock is not None else None
+        # Invalid jumps are unknown, never "instant moves" or negative time.
+        if elapsed is not None:
+            elapsed = round(max(0.0, elapsed), 3) if elapsed >= -0.001 else None
+        clocks.append(clock)
+        before.append(prior)
+        spent.append(elapsed)
+        previous[side] = clock
+        side = not side
+    return {"time_control": control, "base_seconds": base, "increment_seconds": increment,
+            "clocks": clocks, "clock_before": before, "move_seconds": spent, "spent_seconds": spent}
+
+
 def parse_games(pgn_text: str, max_games: int = 50, max_plies: int = 400,
-                warnings: list[str] | None = None) -> list[dict]:
+                warnings: list[str] | None = None, *, time_control_override: str | None = None) -> list[dict]:
     """Read complete standard games. Invalid games are skipped with explanations.
 
     A warning list is optional. If no playable games remain, raise ValueError;
@@ -50,6 +90,8 @@ def parse_games(pgn_text: str, max_games: int = 50, max_plies: int = 400,
         try:
             if game.errors:
                 raise ValueError("запись содержит недопустимые ходы")
+            if time_control_override is not None:
+                game.headers["TimeControl"] = time_control_override
             board = game.board()
             if type(board) is not chess.Board or board.chess960:
                 raise ValueError("поддерживаются только обычные шахматы")
@@ -79,7 +121,11 @@ def parse_games(pgn_text: str, max_games: int = 50, max_plies: int = 400,
                 "game_url": site,
                 "initial_fen": game.board().fen(),
                 "moves": [move.uci() for move in moves],
-                "pgn": game.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False)),
+                "eco": game.headers.get("ECO", "")[:12],
+                "opening": game.headers.get("Opening", "")[:250],
+                "opening_url": game.headers.get("ECOUrl", "")[:1000],
+                **_clock_metadata(game),
+                "pgn": game.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=True)),
             })
         except (ValueError, TypeError) as exc:
             notices.append(f"Партия {read_count} пропущена: {exc}.")

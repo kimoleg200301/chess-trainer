@@ -148,3 +148,75 @@ class GameAnalysis(Base):
         UniqueConstraint("user_id", "fingerprint", name="uq_game_analyses_user_fingerprint"),
         CheckConstraint("cursor >= 0", name="ck_game_analyses_cursor_nonnegative"),
     )
+
+
+class CoachProfile(Base):
+    __tablename__ = "coach_profiles"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    username: Mapped[str] = mapped_column(String(40))
+    time_control: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    baseline_ready: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    sync_state: Mapped[dict] = mapped_column(JSONB, default=dict)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_sync_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CoachGame(Base):
+    __tablename__ = "coach_games"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coach_profiles.id", ondelete="CASCADE"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    cohort: Mapped[str] = mapped_column(String(16))
+    data: Mapped[dict] = mapped_column(JSONB)
+    source_game_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    cursor: Mapped[int] = mapped_column(Integer, default=0)
+    moves: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    analysis_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    __table_args__ = (
+        UniqueConstraint("coach_id", "fingerprint", name="uq_coach_games_identity"),
+        CheckConstraint("cohort IN ('baseline', 'followup')", name="ck_coach_game_cohort"),
+        CheckConstraint("cursor >= 0", name="ck_coach_game_cursor"),
+    )
+
+
+class CoachAttempt(Base):
+    __tablename__ = "coach_attempts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coach_profiles.id", ondelete="CASCADE"), index=True)
+    skill_id: Mapped[str] = mapped_column(String(40))
+    task_key: Mapped[str] = mapped_column(String(160), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    game_id: Mapped[int | None] = mapped_column(ForeignKey("coach_games.id", ondelete="SET NULL"), nullable=True)
+    puzzle_id: Mapped[str | None] = mapped_column(ForeignKey("puzzles.id", ondelete="SET NULL"), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSONB)
+    fen: Mapped[str] = mapped_column(String(160))
+    starting_fen: Mapped[str] = mapped_column(String(160))
+    learner_white: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    ply_index: Mapped[int] = mapped_column(Integer, default=0)
+    mistakes: Mapped[int] = mapped_column(Integer, default=0)
+    hints_used: Mapped[int] = mapped_column(Integer, default=0)
+    elapsed_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    is_new: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (CheckConstraint("elapsed_ms >= 0", name="ck_coach_elapsed_nonnegative"),)
+
+
+class CoachReview(Base):
+    __tablename__ = "coach_reviews"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coach_profiles.id", ondelete="CASCADE"), index=True)
+    task_key: Mapped[str] = mapped_column(String(160))
+    skill_id: Mapped[str] = mapped_column(String(40))
+    successes: Mapped[int] = mapped_column(Integer, default=0)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    __table_args__ = (UniqueConstraint("coach_id", "task_key", name="uq_coach_review_task"),)

@@ -52,7 +52,9 @@ def clean_training(database):
     from app.db import engine
     from app.security import login_limiter
     with engine().begin() as db:
-        db.execute(text("TRUNCATE game_analyses, improvements, imported_games, import_jobs, attempts, reviews, login_sessions RESTART IDENTITY"))
+        db.execute(text("TRUNCATE coach_reviews, coach_attempts, coach_games, coach_profiles, "
+                        "game_analyses, improvements, imported_games, import_jobs, attempts, reviews, "
+                        "login_sessions RESTART IDENTITY"))
         from app.models import Puzzle, User
         db.execute(delete(Puzzle).where(Puzzle.id.not_in([row.id for row in database])))
         for collection in {row.collection for row in database}:

@@ -394,6 +394,9 @@ app.include_router(imports_router)
 from .game_analysis_api import router as game_analysis_router
 app.include_router(game_analysis_router)
 
+from .coach_api import router as coach_router
+app.include_router(coach_router)
+
 from .benchmark_api import router as benchmark_router
 app.include_router(benchmark_router)
 

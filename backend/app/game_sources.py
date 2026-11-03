@@ -109,6 +109,36 @@ def fetch_json(path: str) -> dict:
         raise HTTPException(502, "Chess.com вернул некорректный архив.") from None
 
 
+def chesscom_metadata(game: dict, item: dict, username: str) -> dict:
+    """Attach public game metadata without fabricating unavailable observations."""
+    username = username.lower()
+    result = dict(game)
+    result.update(username=username,
+                  game_url=safe_game_url(item.get("url", "")) or safe_game_url(game.get("game_url", "")),
+                  end_time=item.get("end_time"),
+                  time_class=item.get("time_class") if isinstance(item.get("time_class"), str) else None,
+                  rated=item.get("rated") if isinstance(item.get("rated"), bool) else None)
+    for side in ("white", "black"):
+        player = item.get(side) if isinstance(item.get(side), dict) else {}
+        rating = player.get("rating")
+        result[side + "_rating"] = rating if isinstance(rating, int) and not isinstance(rating, bool) and 0 <= rating <= 10000 else None
+        outcome = player.get("result")
+        result[side + "_result"] = outcome[:40] if isinstance(outcome, str) else None
+    side = "white" if result["white"].lower() == username else "black"
+    opponent = "black" if side == "white" else "white"
+    result.update(player_side=side, player_result=result[side + "_result"],
+                  player_rating=result[side + "_rating"], opponent=result[opponent],
+                  opponent_rating=result[opponent + "_rating"])
+    stamp = source_game_time(result)
+    result["source_game_at"] = stamp.isoformat() if stamp else None
+    opening_url = result.get("opening_url", "")
+    if not opening_url.startswith("https://www.chess.com/openings/"):
+        result["opening_url"] = ""
+    elif not result.get("opening"):
+        result["opening"] = urlsplit(opening_url).path.rsplit("/", 1)[-1].replace("-", " ")[:250]
+    return result
+
+
 def chesscom_games(username: str, month: str | None, limit: int) -> tuple[str, list[dict]]:
     """Return the latest selected completed standard games, without parsing unrelated PGNs."""
     from .generation import parse_games
@@ -133,7 +163,8 @@ def chesscom_games(username: str, month: str | None, limit: int) -> tuple[str, l
     games = []
     for item in eligible[:MAX_CANDIDATE_GAMES]:
         try:
-            parsed = parse_games(item["pgn"], max_games=1, max_plies=400)
+            parsed = parse_games(item["pgn"], max_games=1, max_plies=400,
+                                 time_control_override=item.get("time_control") if isinstance(item.get("time_control"), str) else None)
         except ValueError:
             continue
         if not parsed:
@@ -141,11 +172,7 @@ def chesscom_games(username: str, month: str | None, limit: int) -> tuple[str, l
         game = parsed[0]
         if username not in {game["white"].lower(), game["black"].lower()}:
             continue
-        game["game_url"] = safe_game_url(item.get("url", "")) or safe_game_url(game.get("game_url", ""))
-        game["end_time"] = item["end_time"]
-        stamp = source_game_time(game)
-        game["source_game_at"] = stamp.isoformat() if stamp else None
-        games.append(game)
+        games.append(chesscom_metadata(game, item, username))
         if len(games) >= limit:
             break
     if not games:
