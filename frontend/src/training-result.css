@@ -1,0 +1,31 @@
+.training-result { margin-top: 14px; }
+.result-actions { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 10px; }
+.result-actions .button { min-height: 58px; padding: 10px 12px; }
+.result-actions .secondary { flex-direction: column; gap: 4px; font-size: 10px; }
+.result-actions .result-next { background: #648c39; justify-content: space-between; padding: 12px 20px; font-size: 14px; box-shadow: inset 0 -3px 0 #0002; }
+.result-actions .result-next:hover { background: #557d2c; }
+.result-rating-card { margin-top: 16px; padding: 18px 20px; border: 1px solid #dce5d5; border-radius: 14px; background: #fff; }
+.result-rating-heading, .result-facts { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.result-rating-heading > span, .result-facts > span { display: inline-flex; align-items: center; gap: 6px; }
+.result-rating-heading > span { font-size: 13px; font-weight: 650; }
+.result-rating-heading small { color: var(--muted); font-size: 10px; }
+.result-rating-value { display: flex; align-items: center; gap: 12px; margin: 12px 0 8px; font-variant-numeric: tabular-nums; }
+.result-rating-value strong { font-size: 34px; line-height: 1.1; letter-spacing: -1px; }
+.rating-before { font-size: 23px; color: var(--muted); }
+.result-rating-value > svg { color: var(--muted); }
+.rating-delta { padding: 5px 9px; border-radius: 8px; font-size: 15px; }
+.rating-delta.positive { background: #edf5e4; color: #527c2d; }
+.rating-delta.negative { background: #fff0e9; color: #a45e42; }
+.result-rating-card p { color: var(--muted); font-size: 11px; line-height: 1.65; margin: 0; }
+.result-facts { border-top: 1px solid #e8ede4; margin-top: 13px; padding-top: 12px; font-size: 10px; color: var(--muted); }
+.session-rating { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-weight: 650; font-variant-numeric: tabular-nums; }
+.square .solved-marker { position: absolute; z-index: 5; top: 3px; right: 3px; width: 24%; height: 24%; min-width: 14px; min-height: 14px; display: grid; place-items: center; border-radius: 50%; color: white; background: #77a548; box-shadow: 0 1px 3px #0003; font-size: clamp(10px, 2vw, 18px); font-weight: 700; }
+.restore-training { margin: 20px auto; max-width: 600px; }
+.restore-training .text-button { margin-top: 8px; }
+@media (max-width: 500px) {
+  .result-actions { gap: 8px; grid-template-columns: 1fr 1fr 1.9fr; }
+  .result-actions .result-next { font-size: 12px; padding: 10px 14px; }
+  .result-rating-card { padding: 15px; }
+  .result-rating-heading small { font-size: 9px; }
+  .session-metrics .session-rating { font-size: 11px; }
+}

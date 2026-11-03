@@ -1,6 +1,8 @@
 export type Theme = { id: string; name: string; count: number };
 export type PuzzleCollection = { id: string; name: string; count: number };
 export type Meta = { total_puzzles: number; themes: Theme[]; min_rating: number; max_rating: number; collections: PuzzleCollection[] };
+export type RatingChange = { before: number; after: number; delta: number; puzzle_before: number; puzzle_after: number; clean: boolean };
+export type TrainingOptions = { collection: string; mode: 'practice' | 'review'; adaptive: boolean; theme: string | null; min_rating: number; max_rating: number };
 export type Attempt = {
   id: number; puzzle_id: string; fen: string; rating: number; themes: string[];
   status: 'active' | 'completed' | 'revealed'; turn: 'white' | 'black';
@@ -8,15 +10,18 @@ export type Attempt = {
   last_move: string | null; elapsed_ms: number | null;
   collection: string; rating_estimated: boolean;
   starting_fen?: string; resumed?: boolean;
+  rated?: boolean; rating_change?: RatingChange | null; training_options?: TrainingOptions;
 };
 export type Stats = {
   solved: number; total_attempts: number; accuracy: number; streak: number; due_count: number;
   average_solution_ms: number | null; timed_solutions: number;
+  puzzle_rating: number; rated_attempts: number;
   by_theme: { id: string; name: string; attempts: number; solved: number }[];
   recent: { puzzle_id: string; rating: number; status: string; created_at: string; elapsed_ms: number | null; collection: string; rating_estimated: boolean }[];
 };
 export type Analysis = { evaluation: string; line: string[]; engine: string };
 export type Reveal = { attempt: Attempt; solution: { uci: string; san: string }[]; game_url: string };
+export type SavedTraining = Omit<Reveal, 'attempt'> & { attempt: Attempt | null };
 
 export type ImportJobSummary = {
   background_requested: boolean;

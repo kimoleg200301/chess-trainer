@@ -7,8 +7,9 @@ import './chessboard.css';
 const names: Record<string, string> = { p: 'пешка', n: 'конь', b: 'слон', r: 'ладья', q: 'ферзь', k: 'король' };
 const initialFen = new Chess().fen();
 
-export default function ChessBoard({ attempt, busy, hintSquare, onMove }: {
+export default function ChessBoard({ attempt, busy, hintSquare, onMove, solvedSquare }: {
   attempt: Attempt | null; busy: boolean; hintSquare: string | null; onMove: (move: string) => void;
+  solvedSquare?: string;
 }) {
   const [selected, setSelected] = useState<Square | null>(null);
   const [promotion, setPromotion] = useState<{ from: Square; to: Square } | null>(null);
@@ -120,6 +121,7 @@ export default function ChessBoard({ attempt, busy, hintSquare, onMove }: {
           {column === 0 && <span className="rank-label" aria-hidden="true">{rank}</span>}
           {row === 7 && <span className="file-label" aria-hidden="true">{file}</span>}
           {piece && <img src={`/pieces/${piece.color}${piece.type.toUpperCase()}.svg`} alt="" draggable={false} className="piece" />}
+          {solvedSquare === square && <span className="solved-marker" aria-hidden="true">✓</span>}
           {targets.includes(square) && <span className={piece ? 'move-ring' : 'move-dot'} aria-hidden="true" />}
         </button>;
       }))}

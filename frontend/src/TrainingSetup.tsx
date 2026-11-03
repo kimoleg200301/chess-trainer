@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ArrowRight, CheckCircle2, LoaderCircle, Play, RotateCcw, Settings2, Target, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, LoaderCircle, Play, RotateCcw, Settings2, Target, TrendingUp, X } from 'lucide-react';
 import type { Meta, Stats } from './api';
 import './training-setup.css';
 
@@ -16,6 +16,8 @@ export type TrainingSetupProps = {
   onMaxRatingChange: (value: number) => void;
   mode: 'practice' | 'review';
   onModeChange: (value: 'practice' | 'review') => void;
+  adaptive: boolean;
+  onAdaptiveChange: (value: boolean) => void;
   busy: boolean;
   error: string;
   onDismissError: () => void;
@@ -34,7 +36,7 @@ const presets = [
 export default function TrainingSetup({
   meta, stats, collection, onCollectionChange, theme, onThemeChange, minRating, maxRating, onMinRatingChange,
   onMaxRatingChange, mode, onModeChange, busy, error, onDismissError, onStart,
-  onResume, sessionSolved,
+  onResume, sessionSolved, adaptive, onAdaptiveChange,
 }: TrainingSetupProps) {
   const personal = collection === 'personal';
   const heading = useRef<HTMLHeadingElement>(null);
@@ -43,8 +45,10 @@ export default function TrainingSetup({
     <div className="setup-intro">
       <span className="setup-emblem" aria-hidden="true"><Target size={25} /></span>
       <h1 ref={heading} tabIndex={-1} id="training-setup-title">Начните тренировку</h1>
-      <p>{personal ? 'Начните решать задачи из своих партий — без настройки фильтров.' : 'Выберите мотив и комфортный уровень сложности.'}</p>
+      <p>{personal ? 'Задачи из своих партий под ваш уровень — без настройки фильтров.' : 'Практикуйтесь на задачах, подобранных под ваш уровень.'}</p>
     </div>
+
+    <div className="setup-rating"><span><TrendingUp size={19} /> Ваш рейтинг</span><strong>{fmt.format(stats?.puzzle_rating ?? 1200)}</strong><small>{stats?.rated_attempts ? `${fmt.format(stats.rated_attempts)} рейтинговых решений` : 'Начальный рейтинг'}</small></div>
 
     {onResume && <div className="setup-resume">
       <span>Текущая позиция</span>
@@ -62,7 +66,7 @@ export default function TrainingSetup({
         <select id="collection" value={collection} onChange={event => onCollectionChange(event.target.value)} disabled={busy || !meta}>
           {(meta?.collections || [{ id: 'lichess', name: 'Lichess', count: 0 }, { id: 'public', name: 'Открытые партии', count: 0 }, { id: 'personal', name: 'Мои задачи', count: 0 }, { id: 'all', name: 'Все доступные', count: 0 }]).map(item => <option key={item.id} value={item.id}>{item.name} ({fmt.format(item.count)})</option>)}
         </select>
-        <p className="collection-description">{collection === 'personal' ? 'Задачи из ваших партий Chess.com сохраняются автоматически. Сначала новые задачи из самых свежих партий, затем более старые. Пройденные и разобранные позиции автоматически не повторяются.' : collection === 'public' ? 'Тактические моменты из реальных партий, проверенные Stockfish.' : collection === 'all' ? 'Задачи Lichess, открытые партии и ваша личная коллекция.' : 'Готовые задачи Lichess с рейтингом по результатам решений.'}</p>
+        <p className="collection-description">{collection === 'personal' ? 'Задачи из ваших партий Chess.com сохраняются автоматически. Подбираем непройденные позиции, близкие к вашему рейтингу. Пройденные и разобранные позиции автоматически не повторяются.' : collection === 'public' ? 'Тактические моменты из реальных партий, проверенные Stockfish.' : collection === 'all' ? 'Задачи Lichess, открытые партии и ваша личная коллекция.' : 'Готовые задачи Lichess с рейтингом по результатам решений.'}</p>
         {meta?.total_puzzles === 0 && <p className="collection-empty">В этой базе пока нет задач. Добавьте их в разделе «Мои партии» или выберите другую базу.</p>}
         {!personal && <><label className="field-label" htmlFor="theme">Тактический мотив</label>
         <select id="theme" value={theme} onChange={event => onThemeChange(event.target.value)} disabled={!meta || busy}>
@@ -70,6 +74,8 @@ export default function TrainingSetup({
           {meta?.themes.map(item => <option key={item.id} value={item.id}>{item.name} ({item.count})</option>)}
         </select>
 
+        {mode === 'practice' && <label className="adaptive-choice"><input type="checkbox" checked={adaptive} onChange={event => onAdaptiveChange(event.target.checked)} /><span>Подбирать по моему рейтингу<small>{adaptive ? 'Рейтинг меняется после первого решения задачи.' : 'Ручной подбор — без изменения рейтинга.'}</small></span></label>}
+        {(!adaptive || mode === 'review') && <>
         <div className="difficulty-label"><label className="field-label" htmlFor="rating-min">Рейтинг задач</label><span>{minRating}–{maxRating}</span></div>
         <div className="rating-fields">
           <label><span>От</span><input id="rating-min" type="number" min="0" max="4000" step="1" value={minRating} onChange={event => onMinRatingChange(Number(event.target.value))} required /></label>
@@ -77,6 +83,7 @@ export default function TrainingSetup({
           <label><span>До</span><input aria-label="Верхняя граница рейтинга" type="number" min="0" max="4000" step="1" value={maxRating} onChange={event => onMaxRatingChange(Number(event.target.value))} required /></label>
         </div>
         <div className="difficulty-presets" role="group" aria-label="Уровень сложности">{presets.map(preset => <button type="button" key={preset.label} aria-pressed={minRating === preset.min && maxRating === preset.max} className={minRating === preset.min && maxRating === preset.max ? 'selected-preset' : ''} onClick={() => { onMinRatingChange(preset.min); onMaxRatingChange(preset.max); }}>{preset.label}</button>)}</div>
+        </>}
         {collection !== 'lichess' && <p className="collection-rating-note">Сложность задач, созданных из партий, оценивается приблизительно.</p>}</>}
       </fieldset>
 
@@ -87,6 +94,8 @@ export default function TrainingSetup({
       </button>
       <p className="settings-footnote">{!personal && mode === 'review' ? 'Задачи для закрепления знакомых мотивов. Выбранные фильтры применяются и к повторению.' : meta ? `${fmt.format(meta.total_puzzles)} позиций в выбранной базе. Решайте в своём темпе.` : 'Загружаем библиотеку задач…'}</p>
     </form>
+
+    <details className="rating-rules"><summary>Как меняется рейтинг</summary><p>Начальный рейтинг — 1200. Первое решение без ошибок и подсказок повышает его. Ошибка, подсказка или просмотр ответа снижают рейтинг при завершении задачи. Изменение зависит от сложности позиции; время решения не влияет. Повторение, разбор и ручной подбор не дают и не отнимают очки.</p></details>
 
     {(stats || sessionSolved > 0) && <div className="setup-summary">
       <span><CheckCircle2 size={16} /> {sessionSolved > 0 ? `${fmt.format(sessionSolved)} решено в этой тренировке` : `${fmt.format(stats?.solved || 0)} задач решено`}</span>

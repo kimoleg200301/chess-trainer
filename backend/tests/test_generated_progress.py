@@ -60,7 +60,7 @@ def test_generated_export_includes_unplayed_personal_and_referenced_public_only(
     response = logged.get("/api/progress/export")
     assert response.status_code == 200
     data = response.json()
-    assert data["format_version"] == 2
+    assert data["format_version"] == 3
     assert {row["id"] for row in data["generated_puzzles"]} == expected
     assert not excluded.intersection(row["id"] for row in data["generated_puzzles"])
     assert all("owner_id" not in row and "user_id" not in row for row in data["generated_puzzles"])
@@ -107,7 +107,7 @@ def test_unplayed_personal_bank_also_prevents_overwriting_target(logged):
     from app.db import engine
     from app.progress import ProgressSnapshot, restore_snapshot
     data = logged.get("/api/progress/export").json()
-    assert data["format_version"] == 1 and "generated_puzzles" not in data
+    assert data["format_version"] == 3 and data["generated_puzzles"] == []
     with Session(engine()) as db:
         target = _user(db, "bank-occupied-")
         _puzzle(db, "personal", target.id)
@@ -244,7 +244,7 @@ def test_generated_backup_preserves_game_and_creation_chronology(logged):
         expected = {row.initial_fen: (row.source_game_at, row.source_ply, row.created_at)
                     for row in (first, second, unknown)}
     data = logged.get("/api/progress/export").json()
-    assert data["format_version"] == 2
+    assert data["format_version"] == 3
     assert all("created_at" in item and "source_ply" in item and "source_game_at" in item
                for item in data["generated_puzzles"])
     snapshot = ProgressSnapshot.model_validate(data)

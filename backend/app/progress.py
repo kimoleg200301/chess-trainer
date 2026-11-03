@@ -19,6 +19,30 @@ class SnapshotRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class TrainingOptionsRecord(SnapshotRecord):
+    collection: Literal["lichess", "personal", "public", "all"] = "lichess"
+    mode: Literal["practice", "review"] = "practice"
+    adaptive: bool = False
+    theme: str | None = Field(default=None, max_length=64)
+    min_rating: int = Field(default=0, ge=0, le=4000)
+    max_rating: int = Field(default=4000, ge=0, le=4000)
+
+
+class RatingChangeRecord(SnapshotRecord):
+    before: int = Field(ge=0, le=4000)
+    after: int = Field(ge=0, le=4000)
+    delta: int = Field(ge=-32, le=32)
+    puzzle_before: int = Field(ge=0, le=4000)
+    puzzle_after: int = Field(ge=0, le=4000)
+    clean: bool
+
+    @model_validator(mode="after")
+    def consistent_rating(self):
+        if self.before + self.delta != self.after or abs(self.puzzle_after - self.puzzle_before) > 16:
+            raise ValueError("Несогласованное изменение рейтинга.")
+        return self
+
+
 class AttemptRecord(SnapshotRecord):
     puzzle_id: str = Field(min_length=1, max_length=32)
     fen: str = Field(min_length=10, max_length=160)
@@ -31,6 +55,15 @@ class AttemptRecord(SnapshotRecord):
     created_at: AwareDatetime
     completed_at: AwareDatetime | None
     elapsed_ms: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
+    last_opened_at: AwareDatetime | None = None
+    training_options: dict = Field(default_factory=dict)
+    rated: bool = False
+    rating_change: RatingChangeRecord | None = None
+
+    @field_validator("training_options")
+    @classmethod
+    def valid_options(cls, value):
+        return TrainingOptionsRecord.model_validate(value).model_dump() if value else {}
 
     @model_validator(mode="after")
     def consistent_timestamps(self):
@@ -38,6 +71,8 @@ class AttemptRecord(SnapshotRecord):
             raise ValueError("Несогласованные статус и дата завершения.")
         if self.completed_at and self.completed_at < self.created_at:
             raise ValueError("Дата завершения раньше начала.")
+        if self.rating_change and (not self.rated or self.status == "active"):
+            raise ValueError("Рейтинг допустим только у завершённой рейтинговой попытки.")
         return self
 
 
@@ -57,6 +92,7 @@ class GeneratedPuzzleRecord(SnapshotRecord):
     game_url: str = Field(default="", max_length=2000)
     opening_tags: str = Field(default="", max_length=2000)
     rating_estimated: bool = True
+    rated_attempts: int = Field(default=0, ge=0)
     # Optional for old v2 backups: unknown game dates stay unknown. A restored
     # legacy definition receives a new row creation date, never a made-up game date.
     source_game_at: AwareDatetime | None = None
@@ -93,9 +129,11 @@ class GeneratedPuzzleRecord(SnapshotRecord):
 
 
 class ProgressSnapshot(SnapshotRecord):
-    format_version: Literal[1, 2] = 1
+    format_version: Literal[1, 2, 3] = 1
     exported_at: AwareDatetime
     username: str = Field(min_length=1, max_length=80)
+    puzzle_rating: int = Field(default=1200, strict=True, ge=0, le=4000)
+    rated_attempts: int = Field(default=0, strict=True, ge=0)
     attempts: list[AttemptRecord] = Field(max_length=MAX_RECORDS)
     reviews: list[ReviewRecord] = Field(max_length=MAX_RECORDS)
     generated_puzzles: list[GeneratedPuzzleRecord] = Field(default_factory=list, max_length=MAX_RECORDS)
@@ -115,9 +153,17 @@ class ProgressSnapshot(SnapshotRecord):
     @model_serializer(mode="wrap")
     def serialize_snapshot(self, handler):
         result = handler(self)
-        # A plain Lichess backup keeps the original v1 wire format exactly.
+        # Keep old versions writable without silently changing their wire format.
         if self.format_version == 1:
             result.pop("generated_puzzles", None)
+        if self.format_version < 3:
+            result.pop("puzzle_rating", None)
+            result.pop("rated_attempts", None)
+            for attempt in result["attempts"]:
+                for field in ("last_opened_at", "training_options", "rated", "rating_change"):
+                    attempt.pop(field, None)
+            for puzzle in result.get("generated_puzzles", []):
+                puzzle.pop("rated_attempts", None)
         return result
 
 
@@ -145,8 +191,8 @@ def export_snapshot(db: Session, user: User) -> ProgressSnapshot:
         from fastapi import HTTPException
         raise HTTPException(422, "Прогресс содержит недоступную личную задачу.")
     result = ProgressSnapshot(
-        format_version=2 if puzzles else 1,
-        exported_at=now(), username=user.username,
+        format_version=3,
+        exported_at=now(), username=user.username, puzzle_rating=user.puzzle_rating, rated_attempts=user.rated_attempts,
         attempts=[{field: getattr(row, field) for field in ATTEMPT_FIELDS} for row in attempts],
         reviews=[{field: getattr(row, field) for field in REVIEW_FIELDS} for row in reviews],
         generated_puzzles=[{field: getattr(row, field) for field in GeneratedPuzzleRecord.model_fields} for row in puzzles],
@@ -193,7 +239,7 @@ def _same_definition(puzzle: Puzzle, record: GeneratedPuzzleRecord, owner_id: in
     # Creation time belongs to a saved row, not to the chess definition. Old v2
     # backups also lack source ordering metadata; absence must not turn an
     # otherwise identical existing public task into a conflicting definition.
-    fields = set(GeneratedPuzzleRecord.model_fields) - {"id", "created_at"}
+    fields = set(GeneratedPuzzleRecord.model_fields) - {"id", "created_at", "rating", "rated_attempts"}
     fields -= {field for field in ("source_game_at", "source_ply")
                if getattr(record, field) is None}
     return puzzle.owner_id == owner_id and all(
@@ -267,6 +313,8 @@ def restore_snapshot(db: Session, snapshot: ProgressSnapshot, username: str) -> 
     # All validation happens before writes, so even a caller catching ValueError
     # inside a transaction cannot accidentally persist a partial import.
     db.add_all(new_puzzles)
+    user.puzzle_rating = snapshot.puzzle_rating
+    user.rated_attempts = snapshot.rated_attempts
     db.flush()
     for record in snapshot.attempts:
         values = record.model_dump()

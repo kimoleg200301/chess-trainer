@@ -39,7 +39,7 @@ def database(tmp_path_factory):
     from app.models import Puzzle
     from sqlalchemy.orm import Session
     with Session(engine()) as db:
-        seed_rows = db.execute(select(Puzzle.id, Puzzle.collection, Puzzle.rating_estimated)).all()
+        seed_rows = db.execute(select(Puzzle.id, Puzzle.collection, Puzzle.rating_estimated, Puzzle.rating)).all()
     yield seed_rows
     engine().dispose()
     with raw.begin() as db:
@@ -53,11 +53,17 @@ def clean_training(database):
     from app.security import login_limiter
     with engine().begin() as db:
         db.execute(text("TRUNCATE game_analyses, improvements, imported_games, import_jobs, attempts, reviews, login_sessions RESTART IDENTITY"))
-        from app.models import Puzzle
+        from app.models import Puzzle, User
         db.execute(delete(Puzzle).where(Puzzle.id.not_in([row.id for row in database])))
         for collection in {row.collection for row in database}:
             ids = [row.id for row in database if row.collection == collection]
             db.execute(update(Puzzle).where(Puzzle.id.in_(ids)).values(collection=collection, owner_id=None, rating_estimated=collection != "lichess"))
+        current_ratings = dict(db.execute(select(Puzzle.id, Puzzle.rating)).all())
+        for row in database:
+            if current_ratings[row.id] != row.rating:
+                db.execute(update(Puzzle).where(Puzzle.id == row.id).values(rating=row.rating))
+        db.execute(update(Puzzle).where(Puzzle.rated_attempts != 0).values(rated_attempts=0))
+        db.execute(update(User).values(puzzle_rating=1200, rated_attempts=0))
     login_limiter.entries.clear()
 
 

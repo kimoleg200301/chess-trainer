@@ -19,6 +19,8 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(80), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    puzzle_rating: Mapped[int] = mapped_column(Integer, default=1200, server_default="1200")
+    rated_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class LoginSession(Base):
@@ -35,6 +37,7 @@ class Puzzle(Base):
     initial_fen: Mapped[str] = mapped_column(String(160))
     moves: Mapped[list[str]] = mapped_column(ARRAY(String(5)))
     rating: Mapped[int] = mapped_column(Integer, index=True)
+    rated_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     themes: Mapped[list[str]] = mapped_column(ARRAY(String(64)))
     game_url: Mapped[str] = mapped_column(Text)
     opening_tags: Mapped[str] = mapped_column(Text, default="")
@@ -66,8 +69,13 @@ class Attempt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     elapsed_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=now, nullable=True)
+    training_options: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    rated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    rating_change: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     puzzle: Mapped[Puzzle] = relationship(lazy="joined")
     __table_args__ = (Index("ix_attempts_user_completed", "user_id", "completed_at"),
+                      Index("ix_attempts_user_opened", "user_id", "last_opened_at"),
                       CheckConstraint("elapsed_ms >= 0", name="ck_attempts_elapsed_ms_nonnegative"))
 
 

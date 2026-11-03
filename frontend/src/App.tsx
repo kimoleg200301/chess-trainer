@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, CircleHelp, Clock3, Download, Flame, GraduationCap, Library, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import ChessBoard from './ChessBoard';
 import TrainingSetup from './TrainingSetup';
+import TrainingResult from './TrainingResult';
 import GameLibrary from './GameLibrary';
 import GameAnalysis from './GameAnalysis';
 import SoundToggle from './SoundToggle';
@@ -13,7 +14,7 @@ import { useScreenWakeLock } from './useScreenWakeLock';
 import { formatDuration } from './time';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
-import type { Analysis, Attempt, Meta, Reveal, Stats } from './api';
+import type { Analysis, Attempt, Meta, Reveal, SavedTraining, Stats } from './api';
 
 const fmt = new Intl.NumberFormat('ru-RU');
 const puzzleLabel = (id: string) => id.length > 10 ? id.slice(0, 8) : id;
@@ -75,6 +76,7 @@ function StatsPage({ stats, busy, refresh }: { stats: Stats | null; busy: boolea
     {exportReady && <div className="export-success" role="status"><CheckCircle2 size={16} /><span>Скачивание началось. Сохраните JSON-файл как резервную копию прогресса.</span><button className="icon-button" aria-label="Закрыть сообщение" onClick={() => setExportReady(false)}><X size={14} /></button></div>}
     {!stats ? <Empty icon={<TrendingUp />} title={busy ? 'Загружаем статистику' : 'Статистика пока недоступна'}>Здесь появятся результаты ваших тренировок.</Empty> : <>
       <div className="stat-cards">{[
+        { icon: <TrendingUp />, value: fmt.format(stats.puzzle_rating ?? 1200), name: 'Рейтинг задач', detail: `Рейтинговых решений: ${stats.rated_attempts ?? 0}` },
         { icon: <CheckCircle2 />, value: fmt.format(stats.solved), name: 'Задач решено', detail: 'С найденным продолжением' },
         { icon: <Target />, value: `${Math.round(stats.accuracy)}%`, name: 'Чистые решения', detail: 'Без ошибок и подсказок' },
         { icon: <Flame />, value: stats.streak, name: 'Текущая серия', detail: 'Чистых решений подряд' },
@@ -101,6 +103,10 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   const [minRating, setMinRating] = useState(800);
   const [maxRating, setMaxRating] = useState(1800);
   const [mode, setMode] = useState<'practice' | 'review'>('practice');
+  const [adaptive, setAdaptive] = useState(true);
+  const [restoring, setRestoring] = useState(true);
+  const [restoreError, setRestoreError] = useState('');
+  const [restoreVersion, setRestoreVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -112,7 +118,6 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [sessionSolved, setSessionSolved] = useState(0);
-  const [showSkip, setShowSkip] = useState(false);
   const [collectionFinished, setCollectionFinished] = useState<string | null>(null);
   const [phase, setPhase] = useState<'idle' | 'checking' | 'reply'>('idle');
   const [playback, setPlayback] = useState<{ fen: string; last_move: string } | null>(null);
@@ -120,6 +125,8 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   const [feedbackVersion, setFeedbackVersion] = useState(0);
   const actionPending = useRef(false);
   const mounted = useRef(true);
+  const launchRef = useRef(launch);
+  launchRef.current = launch;
   const sessionBack = useRef<HTMLButtonElement>(null);
   const currentAttempt = useRef(attempt);
   currentAttempt.current = attempt;
@@ -141,6 +148,35 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   });
   useScreenWakeLock(visible && screen === 'session' && attempt !== null && !collectionFinished);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  function restoreTraining(saved: SavedTraining) {
+    const current = saved.attempt;
+    if (!current) return;
+    const options = current.training_options;
+    onCollectionChange(options?.collection || current.collection);
+    setMode(options?.mode || 'practice'); setAdaptive(options?.adaptive ?? true);
+    setTheme(options?.theme || ''); setMinRating(options?.min_rating ?? 0); setMaxRating(options?.max_rating ?? 4000);
+    setAttempt(current); setInitialFen(current.starting_fen || current.fen);
+    setReveal(current.status === 'revealed' ? { ...saved, attempt: current } : null);
+    setReplayIndex(0); setReplayPlaying(false); setHintSquare(null); setAnalysis(null); setPlayback(null);
+    setCollectionFinished(null); setFeedback(''); setFeedbackKind('neutral'); setError('');
+    onScreenChange('session');
+  }
+  useEffect(() => {
+    let active = true;
+    setRestoring(true); setRestoreError('');
+    api<SavedTraining>('/training/current').then(saved => {
+      if (active && !launchRef.current) restoreTraining(saved);
+    }).catch(err => { if (active) setRestoreError(errorText(err)); })
+      .finally(() => { if (active) setRestoring(false); });
+    return () => { active = false; };
+  }, [restoreVersion]);
+  async function resumeTraining() {
+    if (!attempt || actionPending.current) return;
+    actionPending.current = true; setBusy(true); setError('');
+    try { const saved = await api<SavedTraining>(`/training/${attempt.id}/resume`, {}); if (mounted.current) restoreTraining(saved); }
+    catch (err) { if (mounted.current) setError(errorText(err)); }
+    finally { actionPending.current = false; if (mounted.current) setBusy(false); }
+  }
   useEffect(() => { if (!visible || screen !== 'session') setReplayPlaying(false); }, [visible, screen]);
   useEffect(() => {
     if (meta && theme && !meta.themes.some(item => item.id === theme)) setTheme('');
@@ -210,21 +246,22 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   }, [attempt?.id, reveal, initialFen, replayIndex, visible, screen]);
 
   useEffect(() => {
-    if (!launch || !visible) return;
+    if (!launch || !visible || restoring) return;
     void start(true, launch.puzzleId, launch.collection).finally(onLaunchHandled);
-  }, [launch, visible]);
+  }, [launch, visible, restoring]);
 
   async function start(newSession = false, puzzleId?: string, source = collection) {
-    if (actionPending.current || analysisBusy) return;
+    if (actionPending.current || analysisBusy || restoring) return;
     // Hidden settings from another collection must never restrict personal tasks.
-    const unfiltered = source === 'personal' || !!puzzleId;
+    const ratedSelection = source === 'personal' || (adaptive && mode === 'practice');
+    const unfiltered = source === 'personal' || ratedSelection || !!puzzleId;
     if (!unfiltered && minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
     actionPending.current = true;
     timer.pause();
     if (puzzleId) { setTheme(''); setMode('practice'); }
-    setShowSkip(false); setReplayPlaying(false); setCollectionFinished(null); setBusy(true); setError('');
+    setReplayPlaying(false); setCollectionFinished(null); setBusy(true); setError('');
     try {
-      const data = await api<Attempt>('/training/start', { theme: unfiltered ? null : theme || null, min_rating: unfiltered ? 0 : minRating, max_rating: unfiltered ? 4000 : maxRating, mode: unfiltered ? 'practice' : mode, collection: source, ...(puzzleId ? { puzzle_id: puzzleId } : {}), ...(!newSession && !puzzleId && attempt ? { exclude_attempt_id: attempt.id } : {}) });
+      const data = await api<Attempt>('/training/start', { theme: source === 'personal' || puzzleId ? null : theme || null, min_rating: unfiltered ? 0 : minRating, max_rating: unfiltered ? 4000 : maxRating, mode: source === 'personal' || puzzleId ? 'practice' : mode, adaptive: ratedSelection, collection: source, ...(puzzleId ? { puzzle_id: puzzleId } : {}), ...(!newSession && !puzzleId && attempt ? { exclude_attempt_id: attempt.id } : {}) });
       if (!mounted.current) return;
       setAttempt(data); setInitialFen(data.starting_fen || data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null); setTimeSaveFailed(false);
       if (newSession) setSessionSolved(0);
@@ -246,7 +283,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     actionPending.current = true;
     const elapsedMs = timer.pause();
-    setBusy(true); setPhase('checking'); setError(''); setHintSquare(null); setShowSkip(false);
+    setBusy(true); setPhase('checking'); setError(''); setHintSquare(null);
     try {
       const result = await api<{ accepted: boolean; attempt: Attempt; reply_move: string | null; feedback: string }>(`/training/${attempt.id}/move`, { move: uci, elapsed_ms: elapsedMs });
       if (!mounted.current) return;
@@ -277,7 +314,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     actionPending.current = true;
     const elapsedMs = timer.pause();
-    setBusy(true); setError(''); setShowSkip(false);
+    setBusy(true); setError('');
     try {
       const result = await api<{ message: string; from_square: string | null; attempt: Attempt }>(`/training/${attempt.id}/hint`, { elapsed_ms: elapsedMs });
       if (!mounted.current) return;
@@ -286,10 +323,10 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
   async function revealSolution() {
-    if (!attempt || attempt.status !== 'active' || actionPending.current) return;
+    if (!attempt || actionPending.current) return;
     actionPending.current = true;
     const elapsedMs = timer.pause();
-    setBusy(true); setError(''); setShowSkip(false);
+    setBusy(true); setError('');
     try {
       const result = await api<Reveal>(`/training/${attempt.id}/reveal`, { elapsed_ms: elapsedMs });
       if (!mounted.current) return;
@@ -305,18 +342,20 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     finally { actionPending.current = false; if (mounted.current) setAnalysisBusy(false); }
   }
   const statusTitle = phase === 'reply' ? 'Соперник отвечает…' : phase === 'checking' && !done ? 'Проверяем ход…'
-    : attempt?.status === 'completed' ? 'Идея найдена!' : reveal ? 'Разбор позиции'
+    : attempt?.status === 'completed' ? 'Решено' : reveal ? 'Разбор позиции'
     : feedbackKind === 'wrong' ? 'Попробуйте ещё' : hintSquare ? 'Подсказка на доске'
     : feedbackKind === 'success' ? 'Верный ход. Продолжайте!' : 'Ваш ход';
   const statusDetail = phase === 'reply' ? 'Ход принят. Следите за ответом на доске.' : phase === 'checking' && !done ? 'Сверяем продолжение…'
-    : attempt?.status === 'completed' ? attempt.mistakes === 0 && attempt.hints_used === 0 ? 'Чистое решение — без ошибок и подсказок.' : 'Комбинация найдена. Повторение поможет закрепить идею.'
+    : attempt?.status === 'completed' ? attempt.mistakes === 0 && attempt.hints_used === 0 ? 'Идеально! Решено без ошибок и подсказок.' : 'Комбинация найдена. Разберите идею и попробуйте снова.'
     : feedback || `Играйте за ${attempt?.turn === 'black' ? 'чёрных' : 'белых'}. Выберите фигуру и поле назначения.`;
   const statusKind = phase !== 'idle' && !done ? 'thinking' : attempt?.status === 'completed' ? 'success' : feedbackKind;
   function openSetup() {
     timer.pause();
-    setReplayPlaying(false); setShowSkip(false); setCollectionFinished(null); setError(''); onScreenChange('setup');
+    setReplayPlaying(false); setCollectionFinished(null); setError(''); onScreenChange('setup');
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
+  if (restoring) return <div className="restore-training" role="status"><Spinner /> Восстанавливаем последнюю позицию…</div>;
+  if (restoreError) return <div className="restore-training"><ErrorNotice message={restoreError} /><button className="button secondary" onClick={() => setRestoreVersion(value => value + 1)}>Повторить загрузку последней задачи</button></div>;
   if (collectionFinished) return <section className="training-finished" aria-label="Тренировка завершена">
     <span className="training-finished-icon"><CheckCircle2 size={36} /></span>
     <p className="training-finished-title">Все выбранные задачи пройдены</p>
@@ -329,24 +368,21 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     collection={collection} onCollectionChange={value => { setTheme(''); setError(''); onCollectionChange(value); }}
     minRating={minRating} maxRating={maxRating} onMinRatingChange={setMinRating} onMaxRatingChange={setMaxRating}
     mode={mode} onModeChange={setMode} busy={busy || analysisBusy} error={error} onDismissError={() => setError('')}
+    adaptive={adaptive} onAdaptiveChange={setAdaptive}
     onStart={() => void start(true)} sessionSolved={sessionSolved}
-    onResume={attempt ? () => { setError(''); onScreenChange('session'); } : undefined}
+    onResume={attempt ? () => void resumeTraining() : undefined}
   />;
   return <section className={`training-session ${reveal ? 'has-replay' : ''}`} aria-label="Решение позиции">
     <div className={`board-column ${attempt.status === 'completed' ? 'board-solved' : ''}`}>
-      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><SoundToggle /><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Время решения, включая свёрнутый браузер. Настройки и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
+      <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><SoundToggle /><span className="session-rating" aria-label={`Ваш рейтинг: ${stats?.puzzle_rating ?? 1200}`}><TrendingUp size={15} />{stats?.puzzle_rating ?? 1200}</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Время решения, включая свёрнутый браузер. Настройки и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
       <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${puzzleLabel(attempt.puzzle_id)} · ${attempt.rating_estimated ? '≈ ' : ''}${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
         <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>
         <div key={`${statusTitle}:${statusDetail}`} className="move-comment-text" tabIndex={0} aria-label="Комментарий к позиции"><strong>{statusTitle}</strong><p>{statusDetail}</p></div>
       </div>}
-      <ChessBoard key={attempt?.id ?? 'initial'} attempt={boardAttempt} busy={busy} hintSquare={hintSquare} onMove={move} />
-      {attempt && <div className="board-actions">
-        <button className="button primary next-position-button" aria-label="Следующая позиция" disabled={busy || analysisBusy || !meta} onClick={() => attempt.status === 'active' ? setShowSkip(true) : void start()}>
-          <span>Следующая позиция</span>{busy ? <Spinner /> : <ArrowRight size={17} />}
-        </button>
-        {showSkip && <div className="skip-confirm" role="alert"><p>Перейти к новой позиции? Эта попытка останется незавершённой.</p><div><button className="text-button" onClick={() => setShowSkip(false)}>Остаться</button><button className="text-button" onClick={() => void start()}>Перейти <ArrowRight size={14} /></button></div></div>}
-      </div>}
+      <ChessBoard key={attempt?.id ?? 'initial'} attempt={boardAttempt} busy={busy} hintSquare={hintSquare} onMove={move} solvedSquare={attempt.status === 'completed' && !reveal ? attempt.last_move?.slice(2, 4) : undefined} />
+      {done && <TrainingResult attempt={attempt} rating={stats?.puzzle_rating ?? 1200} busy={busy || analysisBusy || !meta} reviewing={!!reveal}
+        onNext={() => void start()} onRetry={() => void start(true, attempt.puzzle_id, attempt.collection)} onReview={() => void revealSolution()} />}
       {attempt && !done && <div className="board-tools" aria-label="Помощь в решении">
         <button className="button secondary" disabled={busy} onClick={hint}><Lightbulb size={17} /> Подсказка</button>
         <button className="button secondary" disabled={busy} onClick={revealSolution}><CircleHelp size={17} /> Решение</button>

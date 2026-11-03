@@ -23,6 +23,7 @@ from .db import get_db
 from .engine_resources import engine_slots
 from .imports_api import router as imports_router
 from .models import Attempt, LoginSession, Puzzle, Review, User, now
+from .ratings import previously_finished
 from .security import create_session, current_user, hash_password, login_limiter, token_hash, verify_password
 from .themes import THEMES
 from .training import attempt_view, finalize, get_attempt, play_move, record_elapsed, schedule_review, solution
@@ -77,10 +78,12 @@ class StartBody(BaseModel):
     min_rating: int = Field(default=800, ge=0, le=4000)
     max_rating: int = Field(default=1800, ge=0, le=4000)
     mode: Literal["practice", "review"] = "practice"
+    # Old clients keep their explicit filters. The current UI opts into Elo selection.
+    adaptive: bool = False
 
     @model_validator(mode="after")
     def check_range(self):
-        if self.min_rating > self.max_rating:
+        if not self.adaptive and self.min_rating > self.max_rating:
             raise ValueError("Invalid range")
         return self
 
@@ -153,10 +156,35 @@ def started_attempt_view(attempt: Attempt, *, resumed: bool) -> dict:
     return {**attempt_view(attempt), "starting_fen": initial.fen(), "resumed": resumed}
 
 
+@app.get("/api/training/current")
+def current_training(db: Session = Depends(get_db), user: User = Depends(current_user)):
+    attempt = db.scalar(select(Attempt).join(Puzzle, Puzzle.id == Attempt.puzzle_id).where(
+        Attempt.user_id == user.id, visible_puzzles(user.id)).order_by(
+        func.coalesce(Attempt.last_opened_at, Attempt.created_at).desc(), Attempt.id.desc()).limit(1))
+    if attempt is None:
+        return {"attempt": None, "solution": [], "game_url": ""}
+    # Never disclose the solution while the saved task is still active.
+    return {"attempt": started_attempt_view(attempt, resumed=True),
+            "solution": solution(attempt.puzzle) if attempt.status != "active" else [],
+            "game_url": attempt.puzzle.game_url if attempt.status != "active" else ""}
+
+
+@app.post("/api/training/{attempt_id}/resume")
+def resume_training(attempt_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    attempt = get_attempt(db, attempt_id, user.id, active=False)
+    attempt.last_opened_at = now()
+    db.commit()
+    return {"attempt": started_attempt_view(attempt, resumed=True),
+            "solution": solution(attempt.puzzle) if attempt.status != "active" else [],
+            "game_url": attempt.puzzle.game_url if attempt.status != "active" else ""}
+
+
 @app.post("/api/training/start")
 def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     # Also serialize against an administrative restore into a previously empty account.
-    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    user = db.scalar(select(User).where(User.id == user.id).with_for_update()
+                     .execution_options(populate_existing=True))
+    options = body.model_dump(exclude={"puzzle_id", "exclude_attempt_id"})
     if body.puzzle_id:
         # An explicit puzzle link is an intentional replay, as is review mode.
         puzzle = db.scalar(select(Puzzle).where(Puzzle.id == body.puzzle_id, visible_puzzles(user.id)))
@@ -165,7 +193,9 @@ def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(c
     else:
         if body.theme and body.theme not in THEMES:
             raise HTTPException(422, "Неизвестный тактический мотив.")
-        matching = select(Puzzle).where(collection_filter(user.id, body.collection), Puzzle.rating.between(body.min_rating, body.max_rating))
+        matching = select(Puzzle).where(collection_filter(user.id, body.collection))
+        if not body.adaptive:
+            matching = matching.where(Puzzle.rating.between(body.min_rating, body.max_rating))
         if body.theme:
             matching = matching.where(Puzzle.themes.contains([body.theme]))
         query = matching
@@ -196,6 +226,8 @@ def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(c
                     # let another user's attempt ID affect visible selection.
                     query = query.where(or_(Puzzle.collection != "personal", Puzzle.id != current_puzzle))
             seen = exists().where(Attempt.puzzle_id == Puzzle.id, Attempt.user_id == user.id)
+            if body.adaptive:
+                query = query.order_by(seen, func.abs(Puzzle.rating - user.puzzle_rating))
             if body.collection == "personal":
                 undated_created = case((Puzzle.source_game_at.is_(None), Puzzle.created_at))
                 query = query.order_by(seen,
@@ -204,6 +236,19 @@ def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(c
                                        Puzzle.game_url, Puzzle.source_ply.asc().nulls_last(), Puzzle.id)
             else:
                 query = query.order_by(seen, func.random())
+        if body.adaptive and body.mode == "practice":
+            active_query = select(Attempt).where(
+                Attempt.user_id == user.id, Attempt.status == "active",
+                Attempt.puzzle_id.in_(query.order_by(None).with_only_columns(Puzzle.id)))
+            if body.exclude_attempt_id is not None:
+                active_query = active_query.where(Attempt.id != body.exclude_attempt_id)
+            active = db.scalar(active_query.order_by(
+                func.coalesce(Attempt.last_opened_at, Attempt.created_at).desc(), Attempt.id.desc()).limit(1))
+            if active:
+                active.training_options = options
+                active.last_opened_at = now()
+                db.commit()
+                return started_attempt_view(active, resumed=True)
         puzzle = db.scalar(query.limit(1))
         if not puzzle:
             if body.mode == "practice" and body.collection in {"personal", "all"}:
@@ -220,12 +265,15 @@ def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(c
             active = db.scalar(select(Attempt).where(Attempt.user_id == user.id, Attempt.puzzle_id == puzzle.id,
                                                      Attempt.status == "active").order_by(Attempt.id.desc()).limit(1))
             if active:
+                active.last_opened_at = now()
                 db.commit()
                 return started_attempt_view(active, resumed=True)
     board = chess.Board(puzzle.initial_fen)
     board.push_uci(puzzle.moves[0])
     attempt = Attempt(user_id=user.id, puzzle=puzzle, puzzle_id=puzzle.id, fen=board.fen(),
-                      learner_white=board.turn, last_move=puzzle.moves[0])
+                      learner_white=board.turn, last_move=puzzle.moves[0], training_options=options,
+                      rated=body.adaptive and body.mode == "practice" and not body.puzzle_id
+                      and not previously_finished(db, user.id, puzzle))
     db.add(attempt)
     db.commit()
     return started_attempt_view(attempt, resumed=False)
@@ -234,6 +282,7 @@ def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(c
 @app.post("/api/training/{attempt_id}/move")
 def move(attempt_id: int, body: MoveBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     attempt = get_attempt(db, attempt_id, user.id)
+    attempt.last_opened_at = now()
     record_elapsed(attempt, body.elapsed_ms)
     return play_move(db, attempt, body.move)
 
@@ -241,6 +290,7 @@ def move(attempt_id: int, body: MoveBody, db: Session = Depends(get_db), user: U
 @app.post("/api/training/{attempt_id}/hint")
 def hint(attempt_id: int, body: TimingBody | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)):
     attempt = get_attempt(db, attempt_id, user.id)
+    attempt.last_opened_at = now()
     record_elapsed(attempt, body.elapsed_ms if body else None)
     if not attempt.hints_used:
         schedule_review(db, attempt)
@@ -256,7 +306,8 @@ def reveal(attempt_id: int, body: TimingBody | None = None, db: Session = Depend
     if attempt.status == "active":
         record_elapsed(attempt, body.elapsed_ms if body else None)
         finalize(db, attempt, "revealed")
-        db.commit()
+    attempt.last_opened_at = now()
+    db.commit()
     return {"attempt": attempt_view(attempt), "solution": solution(attempt.puzzle), "game_url": attempt.puzzle.game_url}
 
 
@@ -317,12 +368,14 @@ def stats(db: Session = Depends(get_db), user: User = Depends(current_user)):
             item["solved"] += row.status == "completed"
     due = db.scalar(select(func.count()).select_from(Review).where(Review.user_id == user.id, Review.due_at <= now()))
     return {"solved": sum(row.status == "completed" for row in completed), "total_attempts": len(rows),
+            "puzzle_rating": user.puzzle_rating, "rated_attempts": user.rated_attempts,
             "accuracy": round(100 * clean / len(completed), 1) if completed else 0,
             "streak": streak, "due_count": due,
             "average_solution_ms": round(sum(measured_solutions) / len(measured_solutions)) if measured_solutions else None,
             "timed_solutions": len(measured_solutions),
             "by_theme": sorted(theme_counts.values(), key=lambda item: -item["attempts"]),
-            "recent": [{"puzzle_id": row.puzzle_id, "rating": row.puzzle.rating, "status": row.status,
+            "recent": [{"puzzle_id": row.puzzle_id, "rating": (row.rating_change or {}).get("puzzle_before", row.puzzle.rating), "status": row.status,
+                        "rating_change": row.rating_change,
                         "created_at": row.created_at.isoformat(), "elapsed_ms": row.elapsed_ms,
                         "collection": row.puzzle.collection, "rating_estimated": row.puzzle.rating_estimated} for row in rows[:10]]}
 

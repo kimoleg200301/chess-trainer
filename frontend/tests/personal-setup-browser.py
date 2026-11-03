@@ -18,6 +18,9 @@ def check(browser, width):
         nonlocal attempt, personal_starts
         parsed=urlparse(route.request.url);path=parsed.path.removeprefix('/api')
         if path=='/auth/me': data={'username':'tester'}
+        elif path=='/training/current': data=dict(attempt=None,solution=[],game_url='')
+        elif path.endswith('/reveal'):
+            attempt['status']='revealed';data=dict(attempt=attempt,solution=[dict(uci='e2e4',san='e4')],game_url='')
         elif path=='/meta':
             data=dict(total_puzzles=2,themes=[dict(id='fork',name='Вилка',count=1)],min_rating=200,max_rating=3500,
                       collections=[dict(id=key,name=name,count=2) for key,name in [('lichess','Lichess'),('personal','Мои задачи'),('public','Открытые партии'),('all','Все доступные')]])
@@ -48,6 +51,7 @@ def check(browser, width):
     page.route('**/api/**',respond)
     page.goto(os.environ.get('TEST_FRONTEND_URL','http://localhost:5174'))
     page.get_by_label('Тактический мотив',exact=True).select_option('fork')
+    page.get_by_role('checkbox',name='Подбирать по моему рейтингу',exact=False).uncheck()
     page.locator('#rating-min').fill('2100')
     page.get_by_label('Верхняя граница рейтинга',exact=True).fill('900')
     page.get_by_role('button',name='Повторение',exact=False).click()
@@ -59,12 +63,13 @@ def check(browser, width):
     page.screenshot(path=f'/workspace/scratch/personal-setup-{width}.png',full_page=True)
     page.get_by_role('button',name='Начать тренировку',exact=True).click()
     expect(page.get_by_role('region',name='Решение позиции')).to_be_visible()
-    assert requests[-1]==dict(collection='personal',theme=None,min_rating=0,max_rating=4000,mode='practice')
+    assert requests[-1]==dict(collection='personal',theme=None,min_rating=0,max_rating=4000,mode='practice',adaptive=True)
     expect(page.locator('.puzzle-caption')).to_contain_text('3500')
+    expect(page.get_by_role('button',name='Следующая позиция',exact=True)).to_have_count(0)
+    page.get_by_role('button',name='Решение',exact=True).click()
     page.get_by_role('button',name='Следующая позиция',exact=True).click()
-    page.get_by_role('button',name='Перейти',exact=True).click()
     expect(page.locator('.puzzle-caption')).to_contain_text('200')
-    assert requests[-1]==dict(collection='personal',theme=None,min_rating=0,max_rating=4000,mode='practice',exclude_attempt_id=1)
+    assert requests[-1]==dict(collection='personal',theme=None,min_rating=0,max_rating=4000,mode='practice',adaptive=True,exclude_attempt_id=1)
     page.get_by_role('button',name='К настройкам',exact=True).click()
     page.get_by_label('База задач',exact=True).select_option('lichess')
     expect(page.locator('#rating-min')).to_have_value('2100')
@@ -74,7 +79,7 @@ def check(browser, width):
     page.get_by_label('Тактический мотив',exact=True).select_option('fork')
     page.get_by_role('button',name='Начать новую тренировку',exact=True).click()
     expect(page.get_by_role('region',name='Решение позиции')).to_be_visible()
-    assert requests[-1]==dict(collection='lichess',theme='fork',min_rating=1000,max_rating=1600,mode='review')
+    assert requests[-1]==dict(collection='lichess',theme='fork',min_rating=1000,max_rating=1600,mode='review',adaptive=False)
     page.get_by_role('button',name='К настройкам',exact=True).click()
     personal_setup()
     page.get_by_role('button',name='Начать новую тренировку',exact=True).click()

@@ -39,7 +39,7 @@ def test_export_owns_only_current_user_data_and_no_solutions(logged):
     assert result.status_code == 200
     assert result.headers["content-disposition"].startswith("attachment;")
     data = result.json()
-    assert data["format_version"] == 1 and data["username"] == "tester"
+    assert data["format_version"] == 3 and data["username"] == "tester"
     assert len(data["attempts"]) == 1 and len(data["reviews"]) == 1
     assert data["attempts"][0]["status"] == "active"
     forbidden = {"password", "password_hash", "token", "token_hash", "session", "solution", "moves", "game_url", "user_id"}

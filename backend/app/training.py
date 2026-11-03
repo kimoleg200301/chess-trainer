@@ -6,12 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import Attempt, Puzzle, Review, User, now
+from .ratings import apply_rating
 
 
 def attempt_view(attempt: Attempt) -> dict:
     return {
         "id": attempt.id, "puzzle_id": attempt.puzzle_id,
-        "fen": attempt.fen, "rating": attempt.puzzle.rating,
+        "fen": attempt.fen, "rating": (attempt.rating_change or {}).get("puzzle_before", attempt.puzzle.rating),
         "themes": attempt.puzzle.themes, "status": attempt.status,
         "turn": "white" if attempt.learner_white else "black",
         "solved_plies": attempt.ply_index - 1,
@@ -19,10 +20,16 @@ def attempt_view(attempt: Attempt) -> dict:
         "mistakes": attempt.mistakes, "hints_used": attempt.hints_used,
         "last_move": attempt.last_move, "elapsed_ms": attempt.elapsed_ms,
         "collection": attempt.puzzle.collection, "rating_estimated": attempt.puzzle.rating_estimated,
+        "rated": attempt.rated, "rating_change": attempt.rating_change,
+        "training_options": attempt.training_options or {
+            "collection": attempt.puzzle.collection, "mode": "practice", "adaptive": True,
+            "theme": None, "min_rating": 0, "max_rating": 4000,
+        },
     }
 
 
 def get_attempt(db: Session, attempt_id: int, user_id: int, active: bool = True) -> Attempt:
+    db.scalar(select(User).where(User.id == user_id).with_for_update())
     attempt = db.scalar(select(Attempt).where(Attempt.id == attempt_id, Attempt.user_id == user_id)
                         .with_for_update(of=Attempt))
     if not attempt:
@@ -59,8 +66,10 @@ def schedule_review(db: Session, attempt: Attempt, clean: bool = False):
 def finalize(db: Session, attempt: Attempt, status: str):
     if attempt.completed_at is not None:
         return
+    apply_rating(db, attempt, clean=status == "completed" and not attempt.mistakes and not attempt.hints_used)
     attempt.status = status
     attempt.completed_at = now()
+    attempt.last_opened_at = attempt.completed_at
     schedule_review(db, attempt, clean=status == "completed" and not attempt.mistakes and not attempt.hints_used)
 
 

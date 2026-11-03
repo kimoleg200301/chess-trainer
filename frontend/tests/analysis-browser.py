@@ -57,6 +57,7 @@ def setup(browser, width=390):
                 return route.fulfill(json=reports[0])
             raise AssertionError(path)
         if path=='/auth/me': data={'username':'tester'}
+        elif path=='/training/current': data=dict(attempt=None,solution=[],game_url='')
         elif path=='/meta': data=dict(total_puzzles=1,themes=[],min_rating=800,max_rating=1800,collections=[dict(id='lichess',name='Lichess',count=1)])
         elif path=='/stats': data=dict(solved=0,total_attempts=0,accuracy=0,streak=0,due_count=0,average_solution_ms=None,timed_solutions=0,by_theme=[],recent=[])
         elif path=='/game-analysis/games': data={'games':games}

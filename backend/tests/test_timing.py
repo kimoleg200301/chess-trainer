@@ -145,7 +145,7 @@ def test_timed_progress_roundtrip_and_older_v1_backup(logged):
     active = start(logged)
     logged.post(f"/api/training/{active['id']}/time", json={"elapsed_ms": 23456})
     exported = logged.get("/api/progress/export").json()
-    assert exported["format_version"] == 1
+    assert exported["format_version"] == 3
     assert [item["elapsed_ms"] for item in exported["attempts"]] == [12345, 23456]
     older = deepcopy(exported)
     for item in older["attempts"]:
