@@ -1,0 +1,19 @@
+Chess piece setting 1
+Author: Alnotreally
+Source: https://freesound.org/people/Alnotreally/sounds/801349/
+Audio: https://cdn.freesound.org/previews/801/801349_17217022-hq.mp3
+License: Creative Commons Zero (CC0 1.0 Universal)
+License text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Retrieved: 2026-11-03; the source page identifies the recording as CC0.
+Source SHA-256: 89ff2c5ba4db9d40f15cc81332a895bdbb386f29266edd9f159adb1339eed6bb
+
+The bundled MP3 is an unmodified public HQ preview of a real chess piece
+being placed on a wooden board. No account or runtime network access is needed.
+
+Derived files: src/sounds/move.wav and src/sounds/capture.wav.
+Rebuild: python frontend/scripts/generate-sounds.py (requires ffmpeg).
+Processing: excerpt 2.535-2.815 seconds, 80 Hz high-pass, 1 ms fade-in,
+40 ms fade-out, mono 22050 Hz PCM16, peak normalized to 0.72.
+Capture pairs a quieter contact with the same placement 90 ms later.
+No pitch shift or time stretching. Wrong/complete cues remain original
+generated effects, unrelated to this third-party recording.

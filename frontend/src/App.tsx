@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, BarChart3, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Download, Flame, GraduationCap, Library, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, CircleHelp, Clock3, Download, Flame, GraduationCap, Library, Lightbulb, LoaderCircle, LogOut, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import ChessBoard from './ChessBoard';
 import TrainingSetup from './TrainingSetup';
 import GameLibrary from './GameLibrary';
 import GameAnalysis from './GameAnalysis';
 import SoundToggle from './SoundToggle';
+import BottomMoveControls from './BottomMoveControls';
 import { listenForSoundGestures, playSound } from './sound';
 import { useAttemptTimer } from './useAttemptTimer';
 import { useScreenWakeLock } from './useScreenWakeLock';
@@ -329,13 +330,13 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     onStart={() => void start(true)} sessionSolved={sessionSolved}
     onResume={attempt ? () => { setError(''); onScreenChange('session'); } : undefined}
   />;
-  return <section className="training-session" aria-label="Решение позиции">
+  return <section className={`training-session ${reveal ? 'has-replay' : ''}`} aria-label="Решение позиции">
     <div className={`board-column ${attempt.status === 'completed' ? 'board-solved' : ''}`}>
       <div className="session-toolbar"><button ref={sessionBack} className="text-button" disabled={busy || analysisBusy} onClick={openSetup}><ArrowLeft size={18} /> К настройкам</button><div className="session-metrics"><SoundToggle /><span>{sessionSolved} решено</span><span className={`attempt-timer ${done ? 'finished' : ''}`} role="timer" aria-live="off" aria-label={`Время на позицию ${formatDuration(timer.elapsedMs)}`} title="Время решения, включая свёрнутый браузер. Настройки и ожидание ответа не учитываются."><Clock3 size={16} /><span>{formatDuration(timer.elapsedMs)}</span></span></div></div>
       <div className="board-topline"><div><span className={`side-indicator ${attempt?.turn === 'black' ? 'black-side' : ''}`} /><strong>{attempt ? `${attempt.turn === 'white' ? 'Белые' : 'Чёрные'} ${done ? '· позиция разобрана' : '· ваша сторона'}` : 'Готовы к следующему ходу?'}</strong></div><span className="puzzle-caption">{attempt ? `№ ${puzzleLabel(attempt.puzzle_id)} · ${attempt.rating_estimated ? '≈ ' : ''}${attempt.rating}` : 'Выберите параметры справа'}</span></div>
       {attempt && <div className={`play-status ${statusKind}`} role="status" aria-live="polite" aria-atomic="true">
         <span key={`${attempt.id}-${feedbackVersion}-${phase}`} className="play-status-icon">{phase !== 'idle' && !done ? <Spinner /> : attempt.status === 'completed' || feedbackKind === 'success' ? <CheckCircle2 size={23} /> : feedbackKind === 'wrong' ? <RotateCcw size={22} /> : hintSquare || reveal ? <Lightbulb size={22} /> : <Target size={22} />}</span>
-        <div><strong>{statusTitle}</strong><p>{statusDetail}</p></div>
+        <div key={`${statusTitle}:${statusDetail}`} className="move-comment-text" tabIndex={0} aria-label="Комментарий к позиции"><strong>{statusTitle}</strong><p>{statusDetail}</p></div>
       </div>}
       <ChessBoard key={attempt?.id ?? 'initial'} attempt={boardAttempt} busy={busy} hintSquare={hintSquare} onMove={move} />
       {attempt && <div className="board-actions">
@@ -349,9 +350,15 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
         <button className="button secondary" disabled={busy} onClick={revealSolution}><CircleHelp size={17} /> Решение</button>
       </div>}
       {reveal && <div className="board-replay">
-        <div className="replay-toolbar"><button className="button secondary replay-play" disabled={busy} onClick={toggleReplay}>{replayPlaying ? <Pause size={16} /> : <Play size={16} />}{replayPlaying ? 'Пауза' : 'Воспроизвести'}</button></div>
+        <strong className="solution-heading">Ходы решения</strong>
         <div className="solution-moves">{reveal.solution.map((item, index) => <button key={`${index}-${item.uci}`} aria-label={`Показать позицию после ${item.san}`} aria-pressed={replayIndex === index + 1} onClick={() => seekReplay(index + 1)} className={`${index % 2 === 0 ? 'learner-move' : ''} ${replayIndex === index + 1 ? 'current-move' : ''}`}>{item.san}</button>)}</div>
-        <div className="replay-controls"><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(0)}>В начало</button><div><button className="text-button" disabled={replayIndex === 0} onClick={() => seekReplay(replayIndex - 1)}>← Назад</button><button className="text-button" disabled={replayIndex === reveal.solution.length} onClick={() => seekReplay(replayIndex + 1)}>Далее →</button></div></div>
+        {visible && <BottomMoveControls label="Навигация по решению">
+          <button className="icon-button" aria-label="В начало" disabled={replayIndex === 0} onClick={() => seekReplay(0)}><ChevronsLeft /></button>
+          <button className="icon-button" aria-label="Назад по решению" disabled={replayIndex === 0} onClick={() => seekReplay(replayIndex - 1)}><ChevronLeft /></button>
+          <button className="button primary" aria-label={replayPlaying ? 'Пауза' : 'Воспроизвести'} disabled={busy} onClick={toggleReplay}>{replayPlaying ? <Pause size={21} /> : <Play size={21} />}</button>
+          <button className="icon-button" aria-label="Далее по решению" disabled={replayIndex === reveal.solution.length} onClick={() => seekReplay(replayIndex + 1)}><ChevronRight /></button>
+          <button className="icon-button" aria-label="В конец решения" disabled={replayIndex === reveal.solution.length} onClick={() => seekReplay(reveal.solution.length)}><ChevronsRight /></button>
+        </BottomMoveControls>}
       </div>}
       {timeSaveFailed && <p className="time-save-notice" role="status">Время пока не сохранено. Повторим отправку при следующем действии.</p>}
       {attempt && error && <ErrorNotice message={error} close={() => setError('')} />}
@@ -360,7 +367,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
         <div className="theme-tags">{attempt.themes.filter(id => !['short', 'long', 'veryLong', 'oneMove'].includes(id) && label(id) !== id).slice(0, 5).map(id => <span key={id}>{label(id)}</span>)}</div>
         {reveal && /^https:\/\/(?:(?:www\.)?chess\.com|lichess\.org)\//.test(reveal.game_url) && <a className="source-link" href={reveal.game_url} target="_blank" rel="noreferrer">Посмотреть исходную партию <ChevronRight size={14} /></a>}
         {attempt.status === 'completed' && !analysis && <button className="analysis-button" disabled={busy || analysisBusy} onClick={getAnalysis}>{analysisBusy ? <Spinner /> : <Sparkles size={15} />}{analysisBusy ? 'Анализируем позицию…' : 'Проверить итоговую позицию'}</button>}
-        {analysis && <div className="analysis-result"><div><span>{analysis.engine}</span><strong>{analysis.evaluation}</strong></div><p>{analysis.line.length ? analysis.line.join('  ') : 'Продолжение не требуется.'}</p></div>}
+        {analysis && <div className="analysis-result" tabIndex={0} aria-label="Комментарий движка к позиции"><div><span>{analysis.engine}</span><strong>{analysis.evaluation}</strong></div><p>{analysis.line.length ? analysis.line.join('  ') : 'Продолжение не требуется.'}</p></div>}
       </div>}
     </div>
   </section>;

@@ -1,0 +1,62 @@
+:root { --move-controls-height: 76px; }
+
+/* Reserve the same space for every move. Long explanations remain readable. */
+.analysis-review .review-feedback,
+.training-session .play-status {
+  height: 112px;
+  min-height: 112px;
+  max-height: 112px;
+  align-items: flex-start;
+}
+.move-comment-text {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.analysis-review .review-feedback > b { width: 50px; flex: 0 0 50px; text-align: center; }
+.analysis-review .review-position-caption { height: 36px; min-height: 36px; gap: 8px; }
+.analysis-review .review-position-caption > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.training-session .board-column .board-topline { height: 36px; min-height: 36px; }
+.training-session .board-topline > div { min-width: 0; }
+.training-session .board-topline strong { display: block; min-width: 0; }
+
+/* Keep the variation area present when switching modes or selecting a new move. */
+.analysis-review .analysis-variation-slot { height: 64px; margin-top: 8px; }
+.analysis-review .analysis-variation { height: 100%; margin-top: 0; }
+.analysis-review .analysis-variation > div { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.analysis-review .variation-placeholder { height: 100%; display: flex; align-items: center; font-size: 11px; line-height: 1.6; color: var(--muted); overflow-y: auto; }
+.analysis-review .evaluation-explanation { height: 40px; overflow-y: auto; overscroll-behavior: contain; }
+.session-details .analysis-result { height: 100px; overflow-y: auto; overscroll-behavior: contain; }
+.improvement-card > .improvement-comment { height: 80px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; overflow-wrap: anywhere; }
+.improvement-analysis-content .candidate-line { height: 48px; overflow-y: auto; overscroll-behavior: contain; overflow-wrap: anywhere; }
+.improvement-card > .saved-puzzle-reason,
+.improvement-actions > .puzzle-reason { height: 72px; overflow-y: auto; overscroll-behavior: contain; overflow-wrap: anywhere; }
+
+.move-navigation-dock {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 30;
+  height: calc(var(--move-controls-height) + env(safe-area-inset-bottom, 0px));
+  padding: 10px max(12px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+  border-top: 1px solid #dce4d6;
+  background: #f8faf5;
+  box-shadow: 0 -5px 20px #203d330b;
+}
+.move-navigation-inner { max-width: 600px; height: 100%; margin: auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.move-navigation-inner .icon-button { width: 48px; height: 48px; color: var(--green); flex-shrink: 0; }
+.move-navigation-inner .button { width: 64px; height: 48px; min-height: 48px; padding: 10px; }
+.move-navigation-inner button:disabled { opacity: .35; }
+.game-analysis-page.analysis-review-screen,
+.training-session.has-replay { padding-bottom: calc(var(--move-controls-height) + env(safe-area-inset-bottom, 0px) + 20px); }
+.analysis-review-screen *, .training-session.has-replay * { scroll-margin-bottom: calc(var(--move-controls-height) + env(safe-area-inset-bottom, 0px) + 12px); }
+.training-session .solution-heading { font-size: 12px; color: var(--muted); }
+
+@media (max-width: 500px) {
+  .analysis-review .review-feedback > b { width: 46px; flex-basis: 46px; }
+}

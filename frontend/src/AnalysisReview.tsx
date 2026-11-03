@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FlipVertical2, Pause, Play } from 'lucide-react';
 import AnalysisBoard from './AnalysisBoard';
+import BottomMoveControls from './BottomMoveControls';
 import EvaluationBar, { positionEvaluation } from './EvaluationBar';
 import { categoryInfo } from './analysisCategories';
 import { useScreenWakeLock } from './useScreenWakeLock';
@@ -82,7 +83,7 @@ export default function AnalysisReview({ report, selectedPly, onSelect, visible 
   const player = (side: 'white' | 'black') => <div className="review-player"><span className={`analysis-side-dot ${side}`} /><strong>{report.game[side]}</strong><span>{side === 'white' ? 'Белые' : 'Чёрные'}</span>{report.summary[side].accuracy != null && <b title="Точность ходов">{report.summary[side].accuracy!.toFixed(1)}%</b>}</div>;
   return <section className="analysis-review" aria-label="Интерактивный разбор партии">
     <div className="review-board-column">
-      <div className="review-feedback" aria-live="polite"><span className={`analysis-category-symbol ${move?.category || ''}`}>{selected?.symbol || '♟'}</span><div><strong>{selected?.name || 'Разберём партию'}</strong><p>{move?.reason || 'Листайте ходы стрелками, свайпом по доске или выберите ход в списке.'}</p></div><b title={evaluation.description}>{evaluation.label}</b></div>
+      <div className="review-feedback" aria-live="polite"><span className={`analysis-category-symbol ${move?.category || ''}`}>{selected?.symbol || '♟'}</span><div key={selectedPly ?? 'initial'} className="move-comment-text" tabIndex={0} aria-label="Комментарий к ходу"><strong>{selected?.name || 'Разберём партию'}</strong><p>{move?.reason || 'Листайте ходы стрелками, свайпом по доске или выберите ход в списке.'}</p></div><b title={evaluation.description}>{evaluation.label}</b></div>
       {player(orientation === 'white' ? 'black' : 'white')}
       <div className="review-board-with-evaluation" onTouchStart={event => { swipe.current = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null; }} onTouchCancel={() => { swipe.current = null; }} onTouchEnd={event => {
         const start = swipe.current; swipe.current = null;
@@ -95,15 +96,15 @@ export default function AnalysisReview({ report, selectedPly, onSelect, visible 
       </div>
       {player(orientation)}
       <div className="review-position-caption"><span>{display.label}</span><button className="icon-button" aria-label="Перевернуть доску" onClick={() => setFlipped(value => !value)}><FlipVertical2 size={18} /></button></div>
-      <div className="review-navigation" role="group" aria-label="Навигация по партии">
+      {visible && <BottomMoveControls label="Навигация по партии">
         <button className="icon-button" aria-label="Начальная позиция" disabled={selectedIndex < 0} onClick={() => select(-1)}><ChevronsLeft /></button>
         <button className="icon-button" aria-label="Предыдущий ход" disabled={selectedIndex < 0} onClick={() => select(selectedIndex - 1)}><ChevronLeft /></button>
         <button className="button primary" aria-label={playing ? 'Остановить просмотр' : 'Воспроизвести партию'} disabled={!report.moves.length} onClick={() => { if (selectedIndex >= report.moves.length - 1) onSelect(null); setView({ ply: null, mode: 'played', lineIndex: 0 }); setPlaying(value => !value); }}>{playing ? <Pause size={21} /> : <Play size={21} />}</button>
         <button className="icon-button" aria-label="Следующий ход" disabled={selectedIndex >= report.moves.length - 1} onClick={() => select(selectedIndex + 1)}><ChevronRight /></button>
         <button className="icon-button" aria-label="Последний рассчитанный ход" disabled={selectedIndex >= report.moves.length - 1} onClick={() => select(report.moves.length - 1)}><ChevronsRight /></button>
-      </div>
+      </BottomMoveControls>}
       <div className="analysis-position-tabs" role="group" aria-label="Позиция на доске"><button disabled={!move} aria-pressed={mode === 'before'} onClick={() => setMode('before')}>До хода</button><button disabled={!move} aria-pressed={mode === 'played'} onClick={() => setMode('played')}>Сыграно</button><button disabled={!move?.best_line_uci.length} aria-pressed={mode === 'line'} onClick={() => setMode('line')}>Лучший вариант</button></div>
-      {move && mode === 'line' && <div className="analysis-variation"><button className="icon-button" aria-label="Назад по варианту" disabled={lineIndex <= 0} onClick={() => setLine(lineIndex - 1)}><ChevronLeft size={18} /></button><div>{move.best_line_san.map((san, index) => <button key={index} aria-pressed={index + 1 === lineIndex} className={index + 1 === lineIndex ? 'active' : ''} onClick={() => setLine(index + 1)}>{san}</button>)}</div><button className="icon-button" aria-label="Далее по варианту" disabled={lineIndex >= move.best_line_uci.length} onClick={() => setLine(lineIndex + 1)}><ChevronRight size={18} /></button></div>}
+      <div className="analysis-variation-slot">{move && mode === 'line' ? <div className="analysis-variation"><button className="icon-button" aria-label="Назад по варианту" disabled={lineIndex <= 0} onClick={() => setLine(lineIndex - 1)}><ChevronLeft size={18} /></button><div>{move.best_line_san.map((san, index) => <button key={index} aria-pressed={index + 1 === lineIndex} className={index + 1 === lineIndex ? 'active' : ''} onClick={() => setLine(index + 1)}>{san}</button>)}</div><button className="icon-button" aria-label="Далее по варианту" disabled={lineIndex >= move.best_line_uci.length} onClick={() => setLine(lineIndex + 1)}><ChevronRight size={18} /></button></div> : <p className="variation-placeholder">{move?.best_line_uci.length ? 'Нажмите «Лучший вариант», чтобы посмотреть продолжение движка.' : 'Продолжение движка для этой позиции не показано.'}</p>}</div>
       <p className="evaluation-explanation">Оценка в пешках: «+» — преимущество белых, «−» — чёрных. Это оценка позиции, а не число лишних фигур.</p>
     </div>
     <div className="review-moves-panel panel"><div className="panel-title"><h2>Ходы партии</h2><span>{selectedIndex + 1} / {report.total_plies}</span></div>

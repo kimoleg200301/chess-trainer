@@ -5,6 +5,7 @@ import { api } from './api';
 import { useBackgroundRefresh } from './useBackgroundRefresh';
 import type { CreatedPuzzle, ImportedGame, ImportJob, ImportJobSummary, Improvement } from './api';
 import './game-library.css';
+import './move-layout.css';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Не удалось выполнить запрос. Попробуйте ещё раз.';
 const jobName = (job: ImportJobSummary) => job.source === 'public' ? 'Открытые партии' : `Chess.com · ${job.username}`;
@@ -31,16 +32,16 @@ function ImprovementCard({ item, source, created, saving, onCreate, onPractice }
   return <article className="improvement-card">
     <div className="improvement-heading"><div><span className="improvement-move">{item.move_number}{item.side === 'black' ? '…' : '.'} {item.played_san}</span><span className="improvement-side">{item.side === 'white' ? 'Белые' : 'Чёрные'}</span></div><span className={`improvement-kind ${item.puzzle_available || puzzleId ? 'can-practice' : ''}`}>{item.analysis_pending ? 'Ожидает перепроверки' : puzzleId ? item.puzzle_available ? 'Готова к решению' : 'Сохранена ранее' : item.puzzle_available ? 'Подходит для задачи' : 'Момент для разбора'}</span></div>
     {item.phase && <span className="improvement-phase">{phaseName[item.phase]}</span>}
-    <p>{item.analysis_pending ? 'Сохранён предыдущий результат. Этот момент будет проверен заново.' : item.explanation}</p>
+    <p className="improvement-comment" tabIndex={0} aria-label="Пояснение к ходу">{item.analysis_pending ? 'Сохранён предыдущий результат. Этот момент будет проверен заново.' : item.explanation}</p>
     <details className="improvement-analysis"><summary>{item.played_uci === item.best_uci ? 'Посмотреть идею' : 'Посмотреть улучшение'} <ChevronDown size={14} /></summary>
       <div className="improvement-analysis-content"><div className="move-comparison"><span>Сыграно <strong>{item.played_san}</strong></span><ArrowRight size={15} /><span>{item.played_uci === item.best_uci ? 'Точный ход' : 'Лучше'} <strong>{item.best_san}</strong></span></div>
         <div className="evaluation-comparison"><span>После сыгранного: <strong>{evaluation(item.score_after, item.mate_after)}</strong></span><span>Лучший ход: <strong>{evaluation(item.score_before, item.mate_before)}</strong></span></div>
         <small>Оценка с точки зрения {item.side === 'white' ? 'белых' : 'чёрных'}.</small>
-        {!!item.best_line_san?.length && <p className="candidate-line">{item.best_line_san.join('  ')}</p>}
+        {!!item.best_line_san?.length && <p className="candidate-line" tabIndex={0} aria-label="Продолжение движка">{item.best_line_san.join('  ')}</p>}
       </div>
     </details>
-    {!item.analysis_pending && !item.puzzle_available && item.puzzle_reason && puzzleId && <p className="saved-puzzle-reason">{item.puzzle_reason} Ранее сохранённую задачу можно открыть для разбора.</p>}
-    <div className="improvement-actions">{puzzleId ? <button className="button secondary" onClick={() => onPractice(puzzleId, collection)}><Play size={15} /> Решить задачу</button> : item.puzzle_available ? <button className="button secondary" disabled={saving || item.analysis_pending} onClick={onCreate}>{saving ? <Spinner /> : <Plus size={15} />} Создать задачу</button> : <span className="puzzle-reason">{item.analysis_pending ? 'Причина появится после повторной проверки.' : item.puzzle_reason || 'Подробная причина пока недоступна. Пересчитайте анализ этой подборки.'}</span>}</div>
+    {!item.analysis_pending && !item.puzzle_available && item.puzzle_reason && puzzleId && <p className="saved-puzzle-reason" tabIndex={0}>{item.puzzle_reason} Ранее сохранённую задачу можно открыть для разбора.</p>}
+    <div className="improvement-actions">{puzzleId ? <button className="button secondary" onClick={() => onPractice(puzzleId, collection)}><Play size={15} /> Решить задачу</button> : item.puzzle_available ? <button className="button secondary" disabled={saving || item.analysis_pending} onClick={onCreate}>{saving ? <Spinner /> : <Plus size={15} />} Создать задачу</button> : <span className="puzzle-reason" tabIndex={0}>{item.analysis_pending ? 'Причина появится после повторной проверки.' : item.puzzle_reason || 'Подробная причина пока недоступна. Пересчитайте анализ этой подборки.'}</span>}</div>
   </article>;
 }
 

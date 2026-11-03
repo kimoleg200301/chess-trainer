@@ -31,7 +31,7 @@ window.setHidden = hidden => {
 """
 
 
-def setup(browser, *, reduced=False, unavailable=False):
+def setup(browser, *, reduced=False, unavailable=False, feedback=None):
     context = browser.new_context(viewport={'width':360, 'height':800}, reduced_motion='reduce' if reduced else 'no-preference', is_mobile=True, has_touch=True)
     context.add_init_script(SPY if not unavailable else "window.Audio = class { constructor() { throw new Error('Audio unavailable'); } };")
     page = context.new_page()
@@ -56,7 +56,7 @@ def setup(browser, *, reduced=False, unavailable=False):
             if move == 'e2e4': attempt.update(fen=REPLY, last_move=reply, solved_plies=2)
             elif move == 'e4d5': attempt.update(fen=FINISHED, last_move=move, status='completed', solved_plies=3)
             else: attempt['mistakes'] += 1
-            data = dict(accepted=accepted, attempt=attempt, reply_move=reply, feedback='Верно!' if accepted else 'Попробуйте ещё раз.')
+            data = dict(accepted=accepted, attempt=attempt, reply_move=reply, feedback=feedback or ('Верно!' if accepted else 'Попробуйте ещё раз.'))
         elif path == '/training/3/reveal':
             attempt.update(status='revealed')
             data = dict(attempt=attempt, game_url='', solution=[{'uci':uci, 'san':san} for uci, san in [('e2e4','e4'), ('d7d5','d5'), ('e4d5','exd5')]])
