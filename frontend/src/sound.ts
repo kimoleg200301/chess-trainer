@@ -1,64 +1,89 @@
 export type Sound = 'move' | 'capture' | 'wrong' | 'complete';
-const preferenceKey = 'tactics.sound';
-let enabled = true;
-try { enabled = localStorage.getItem(preferenceKey) !== 'off'; } catch { /* Private browsing may deny storage. */ }
+const files: Record<Sound, string> = {
+  move: new URL('./sounds/move.wav', import.meta.url).href,
+  capture: new URL('./sounds/capture.wav', import.meta.url).href,
+  wrong: new URL('./sounds/wrong.wav', import.meta.url).href,
+  complete: new URL('./sounds/complete.wav', import.meta.url).href,
+};
+const preferenceKey = 'tactics.sound', volumeKey = 'tactics.volume';
+let enabled = true, volume = 0.8, error = '';
+try {
+  enabled = localStorage.getItem(preferenceKey) !== 'off';
+  const saved = localStorage.getItem(volumeKey);
+  if (saved !== null && Number.isFinite(Number(saved))) volume = Math.max(0, Math.min(1, Number(saved)));
+} catch { /* Storage is optional. */ }
 const listeners = new Set<() => void>();
-let context: AudioContext | null = null;
-let resuming: Promise<void> | null = null;
-let soundGeneration = 0;
-const buffers = new Map<Sound, AudioBuffer>();
-const playing = new Set<AudioBufferSourceNode>();
-
 export const soundEnabled = () => enabled;
+export const soundVolume = () => volume;
+export const soundError = () => error;
 export function subscribeSound(listener: () => void) {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
+const notify = () => listeners.forEach(listener => listener());
+type Voice = { audio: HTMLAudioElement; primed: boolean; generation: number };
+const voices = new Map<Sound, Voice[]>();
+const timers = new Set<number>();
+let generation = 0;
 
-function stopSounds() {
-  soundGeneration++;
-  for (const source of playing) {
-    try { source.stop(); } catch { /* Already ended. */ }
-    source.disconnect();
+function pool(sound: Sound) {
+  let result = voices.get(sound);
+  if (!result) {
+    result = Array.from({ length: 2 }, () => {
+      const audio = new Audio(files[sound]);
+      audio.preload = 'auto';
+      return { audio, primed: false, generation: 0 };
+    });
+    voices.set(sound, result);
   }
-  playing.clear();
+  return result;
+}
+function stopSounds() {
+  generation++;
+  timers.forEach(timer => window.clearTimeout(timer)); timers.clear();
+  voices.forEach(group => group.forEach(voice => { voice.generation++; voice.audio.pause(); }));
 }
 
-// Called synchronously during a gesture, before any network request. Mobile
-// browsers require this even when the eventual sound follows an API response.
+// Prime the actual media elements during touchend/click, not only pointerdown:
+// on mobile pointerdown may precede the browser's user-activation grant.
 function unlockSound() {
   if (!enabled || document.visibilityState !== 'visible') return;
   try {
-    if (!context || context.state === 'closed') {
-      const Audio = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Audio) return;
-      context = new Audio();
-      buffers.clear();
+    for (const sound of Object.keys(files) as Sound[]) for (const voice of pool(sound)) {
+      if (voice.primed || !voice.audio.paused) continue;
+      const token = ++voice.generation;
+      if (voice.audio.error) voice.audio.load();
+      voice.audio.muted = true;
+      void voice.audio.play().then(() => {
+        voice.primed = true;
+        if (token === voice.generation) { voice.audio.pause(); voice.audio.currentTime = 0; voice.audio.muted = false; }
+      }).catch(() => { /* Retry on the next trusted gesture; never leave a pending lock. */ });
     }
-    if (context.state !== 'running' && !resuming) {
-      resuming = context.resume().catch(() => {}).finally(() => { resuming = null; });
-    }
-  } catch { /* Sound is optional; it must never interrupt a move. */ }
+  } catch { /* Audio support must not affect gameplay. */ }
 }
-
-function setSoundEnabled(value: boolean) {
-  enabled = value;
-  if (enabled) unlockSound(); else stopSounds();
-  listeners.forEach(listener => listener());
+export function setSoundVolume(value: number) {
+  volume = Math.max(0, Math.min(1, value));
+  voices.forEach(group => group.forEach(({ audio }) => { audio.volume = volume; }));
+  try { localStorage.setItem(volumeKey, String(volume)); } catch { /* Keep in memory. */ }
+  notify();
 }
-
 export function toggleSound() {
-  setSoundEnabled(!enabled);
-  try { localStorage.setItem(preferenceKey, enabled ? 'on' : 'off'); } catch { /* Keep the choice for this visit. */ }
+  enabled = !enabled; error = '';
+  if (enabled) unlockSound(); else stopSounds();
+  try { localStorage.setItem(preferenceKey, enabled ? 'on' : 'off'); } catch { /* Keep in memory. */ }
+  notify();
 }
-
 export function listenForSoundGestures() {
   const gesture = (event: Event) => { if (event.isTrusted) unlockSound(); };
   const visibility = () => { if (document.visibilityState !== 'visible') stopSounds(); };
   const storage = (event: StorageEvent) => {
-    if (event.key === preferenceKey || event.key === null) setSoundEnabled(event.newValue !== 'off');
+    if (event.key === preferenceKey || event.key === null) enabled = event.newValue !== 'off';
+    if (event.key === volumeKey || event.key === null) volume = event.newValue == null ? .8 : Math.max(0, Math.min(1, Number(event.newValue) || 0));
+    if (!enabled) stopSounds();
+    voices.forEach(group => group.forEach(({ audio }) => { audio.volume = volume; }));
+    notify();
   };
-  const events = ['pointerdown', 'pointerup', 'touchend', 'keydown'] as const;
+  const events = ['pointerup', 'touchend', 'click', 'keydown'] as const;
   events.forEach(type => document.addEventListener(type, gesture, { capture: true, passive: true }));
   document.addEventListener('visibilitychange', visibility);
   window.addEventListener('pagehide', stopSounds);
@@ -71,58 +96,32 @@ export function listenForSoundGestures() {
     stopSounds();
   };
 }
-
-// Small, original synthesized sounds: no downloads or third-party recordings.
-function makeBuffer(audio: AudioContext, sound: Sound) {
-  const duration = sound === 'complete' ? 0.7 : sound === 'wrong' ? 0.24 : 0.13;
-  const buffer = audio.createBuffer(1, Math.ceil(audio.sampleRate * duration), audio.sampleRate);
-  const samples = buffer.getChannelData(0);
-  let seed = 7;
-  for (let i = 0; i < samples.length; i++) {
-    const t = i / audio.sampleRate;
-    if (sound === 'move' || sound === 'capture') {
-      const frequency = sound === 'capture' ? 490 : 680;
-      seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
-      const noise = seed / 2147483648;
-      const attack = Math.min(1, t / 0.002);
-      samples[i] = attack * (0.24 * Math.sin(2 * Math.PI * frequency * t) * Math.exp(-t * 55)
-        + 0.09 * Math.sin(2 * Math.PI * frequency * 1.73 * t) * Math.exp(-t * 85)
-        + 0.1 * noise * Math.exp(-t * 150));
-    } else {
-      const notes = sound === 'complete' ? [523.25, 659.25, 783.99] : [293.66, 246.94];
-      for (let note = 0; note < notes.length; note++) {
-        const age = t - note * (sound === 'complete' ? 0.12 : 0.09);
-        if (age < 0) continue;
-        const envelope = Math.min(1, age / 0.008) * Math.exp(-age * (sound === 'complete' ? 11 : 28));
-        samples[i] += 0.13 * Math.sin(2 * Math.PI * notes[note] * age) * envelope;
-      }
-    }
-    // Fade the last few milliseconds to avoid a click when the buffer ends.
-    samples[i] *= Math.min(1, (duration - t) / 0.015);
-  }
-  return buffer;
-}
-
 export function playSound(sound: Sound, delay = 0) {
-  // Drop suspended/hidden sounds instead of queuing stale feedback on return.
-  if (!enabled || !context || document.visibilityState !== 'visible') return;
-  if (context.state !== 'running') {
-    // A click can update the board before the gesture's resume() settles.
-    // Allow only this fresh feedback, and cancel it on mute/hide or a slow resume.
-    const requestedAt = performance.now(), generation = soundGeneration;
-    if (resuming) void resuming.then(() => {
-      if (context?.state === 'running' && generation === soundGeneration && performance.now() - requestedAt < 200) playSound(sound, delay);
-    });
-    return;
+  if (!enabled || volume === 0 || document.visibilityState !== 'visible') return;
+  if (delay > 0) {
+    const token = generation, timer = window.setTimeout(() => {
+      timers.delete(timer);
+      if (token === generation) playSound(sound);
+    }, delay * 1000);
+    timers.add(timer); return;
   }
   try {
-    let buffer = buffers.get(sound);
-    if (!buffer) { buffer = makeBuffer(context, sound); buffers.set(sound, buffer); }
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(context.destination);
-    source.onended = () => { playing.delete(source); source.disconnect(); };
-    playing.add(source);
-    source.start(context.currentTime + delay);
-  } catch { /* Unsupported or interrupted audio must not affect gameplay. */ }
+    const group = pool(sound), voice = group.find(item => item.audio.paused) || group[0];
+    const token = ++voice.generation;
+    if (voice.audio.error) voice.audio.load();
+    voice.audio.pause(); voice.audio.currentTime = 0;
+    voice.audio.muted = false; voice.audio.volume = volume;
+    void voice.audio.play().then(() => {
+      voice.primed = true;
+      if (error) { error = ''; notify(); }
+    }).catch((reason: unknown) => {
+      if (token !== voice.generation || (reason instanceof DOMException && reason.name === 'AbortError')) return;
+      error = 'Не удалось включить звук. Нажмите «Проверить звук» ещё раз.'; notify();
+    });
+  } catch { error = 'Звук недоступен в этом браузере.'; notify(); }
+}
+export function previewSound() {
+  if (!enabled) toggleSound();
+  if (!volume) setSoundVolume(.8);
+  playSound('complete');
 }

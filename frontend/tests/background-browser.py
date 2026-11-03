@@ -110,6 +110,7 @@ def run():
         print('PASS library: server resume, no pause/step on hide or navigation, restored completion, background restart')
 
         page.evaluate("screen('analysis')")
+        page.get_by_role('button', name='Открыть партию Tester — Opponent', exact=True).click()
         page.get_by_role('button', name='Анализировать партию', exact=True).click()
         expect(page.get_by_role('button', name='Пауза', exact=True)).to_be_visible()
         assert posts[-1] == ('/game-analysis', {'game_id':1, 'background':True})
@@ -118,7 +119,7 @@ def run():
         assert len(posts) == count and report['background_requested']
         report.update(cursor=3)
         page.evaluate("setHidden(false); screen('analysis')")
-        expect(page.get_by_role('progressbar', name='Анализ ходов партии')).to_have_attribute('aria-valuenow', '3')
+        expect(page.get_by_role('progressbar', name='Анализ ходов партии')).to_have_attribute('aria-valuenow', '75')
         page.get_by_role('button', name='Пауза', exact=True).click()
         expect(page.get_by_role('button', name='Продолжить анализ', exact=True)).to_be_visible()
         assert posts[-1][0] == '/game-analysis/2/pause'
