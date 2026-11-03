@@ -2,14 +2,17 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { playSound } from './sound';
+import { categoryInfo } from './analysisCategories';
+import type { GameMoveCategory } from './api';
 
 const pieceNames: Record<string, string> = { p: 'пешка', n: 'конь', b: 'слон', r: 'ладья', q: 'ферзь', k: 'король' };
 const positionKey = (fen: string) => fen.split(' ').slice(0, 4).join(' ');
 
 type BoardSnapshot = { fen: string; side: 'white' | 'black'; identity: number | string; visible: boolean };
 
-export default function AnalysisBoard({ fen, side, lastMove, identity, visible }: {
+export default function AnalysisBoard({ fen, side, lastMove, identity, visible, annotation }: {
   fen: string; side: 'white' | 'black'; lastMove: string | null; identity: number | string; visible: boolean;
+  annotation?: { square: string; category: GameMoveCategory };
 }) {
   const grid = useRef<HTMLDivElement>(null);
   const previousPosition = useRef<BoardSnapshot | null>(null);
@@ -88,15 +91,17 @@ export default function AnalysisBoard({ fen, side, lastMove, identity, visible }
     };
   }, [board, side, identity, visible]);
 
-  return <div ref={grid} className="analysis-position-board" role="img" aria-label={`Позиция партии. Доска со стороны ${side === 'white' ? 'белых' : 'чёрных'}.`}>
+  return <div ref={grid} className="analysis-position-board" role="img" aria-label={`Позиция партии. Доска со стороны ${side === 'white' ? 'белых' : 'чёрных'}.${annotation ? ` Оценка хода: ${categoryInfo(annotation.category).name}.` : ''}`}>
     {[...ranks].flatMap((rank, row) => [...files].map((file, col) => {
       const square = `${file}${rank}` as Square;
       const piece = board.get(square);
       const last = !!lastMove && [lastMove.slice(0, 2), lastMove.slice(2, 4)].includes(square);
       const check = piece?.type === 'k' && piece.color === board.turn() && board.isCheck();
+      const badge = piece && annotation?.square === square ? categoryInfo(annotation.category) : null;
       return <div key={square} data-square={square} className={`analysis-square ${(row + col) % 2 ? 'dark' : 'light'} ${last ? 'last-move' : ''} ${check ? 'in-check' : ''}`} title={`${square}${piece ? `: ${piece.color === 'w' ? 'белые' : 'чёрные'} ${pieceNames[piece.type]}` : ': пустое поле'}`}>
         {col === 0 && <span className="analysis-rank" aria-hidden="true">{rank}</span>}{row === 7 && <span className="analysis-file" aria-hidden="true">{file}</span>}
         {piece && <img src={`/pieces/${piece.color}${piece.type.toUpperCase()}.svg`} alt="" draggable={false} />}
+        {badge && <span className={`analysis-piece-badge analysis-category-symbol ${badge.id}`} aria-hidden="true" title={badge.name}>{badge.symbol}</span>}
       </div>;
     }))}
   </div>;

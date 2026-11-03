@@ -63,7 +63,7 @@ def check_review(browser, width):
     page.get_by_role('button',name='Следующий ход',exact=True).click()
     same_board(page, board, expected)
     assert comment.evaluate('el => el.scrollTop') == 0
-    for name in ['До хода','Лучший вариант','Далее по варианту','Сыграно','Последний рассчитанный ход','Начальная позиция']:
+    for name in ['До хода','Лучший вариант','Назад по варианту','Далее по варианту','Сыграно','Последний рассчитанный ход','Начальная позиция']:
         page.get_by_role('button',name=name,exact=True).click()
         same_board(page, board, expected)
         docked(page)
