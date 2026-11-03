@@ -97,6 +97,7 @@ export type GameSideSummary = {
   coverage: number; complete: boolean; accuracy_complete: boolean;
 };
 export type GameAnalysisReport = {
+  retry_pending?: number;
   background_requested: boolean;
   id: number; game_id: number; game: GameAnalysisSource & { initial_fen: string };
   status: 'ready' | 'running' | 'completed' | 'failed'; cursor: number; total_plies: number;

@@ -232,7 +232,12 @@ def test_unassessed_moves_do_not_produce_a_false_complete_accuracy(logged, fake_
     analysis = start(logged, game_id)
     for _ in range(4):
         analysis = step(logged, analysis["id"])
+    assert analysis["status"] == "running" and analysis["retry_pending"] == 1
+    analysis = step(logged, analysis["id"])
     assert analysis["status"] == "completed"
+    assert analysis["retry_pending"] == 0 and analysis["moves"][0]["retry_attempts"] == 1
+    assert step(logged, analysis["id"]) == analysis
+    assert len(fake_engine[0]) == 5
     white = analysis["summary"]["white"]
     assert white["accuracy"] is None and not white["accuracy_complete"]
     assert white["provisional_accuracy"] is not None and white["counts"]["unassessed"] == 1

@@ -76,7 +76,17 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     selectedRef.current = game.id; analysisRef.current = game.analysis_id; setSelectedGame(game.id); setReport(null); setSelectedPly(null); setError(''); setNotice('');
     const version = ++selectionVersion.current, revision = reportRevision.current; setLoadingReport(game.analysis_id !== null);
     if (game.analysis_id === null) return;
-    try { const result = await api<GameAnalysisReport>(`/game-analysis/${game.analysis_id}`); if (mounted.current && selectedRef.current === game.id && selectionVersion.current === version && revision === reportRevision.current) { setCurrentReport(result); updateGame(result, game.id); } }
+    try {
+      let result = await api<GameAnalysisReport>(`/game-analysis/${game.analysis_id}`);
+      const stillSelected = () => mounted.current && selectedRef.current === game.id && selectionVersion.current === version && revision === reportRevision.current;
+      if (!stillSelected()) return;
+      if (result.status === 'completed' && !result.analysis_outdated && result.retry_pending) {
+        result = await api<GameAnalysisReport>(`/game-analysis/${result.id}/resume`, {});
+        if (!stillSelected()) return;
+        if (result.status !== 'completed') openScreen('progress');
+      }
+      setCurrentReport(result); updateGame(result, game.id);
+    }
     catch (err) { if (mounted.current && selectionVersion.current === version) setError(errorText(err)); }
     finally { if (mounted.current && selectionVersion.current === version) setLoadingReport(false); }
   }, [setCurrentReport, updateGame, openScreen]);
@@ -135,6 +145,8 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   }
   const currentGame = games.find(game => game.id === selectedGame), running = !!report?.background_requested && !report.analysis_outdated && report.status !== 'completed' && report.status !== 'failed', completed = report?.status === 'completed', disabled = actionBusy !== null || stepBusy;
   const percent = actionBusy === 'restart' ? 0 : completed ? 100 : report?.total_plies ? Math.min(99, Math.floor(report.cursor / report.total_plies * 100)) : 0;
+  const retrying = !completed && report?.cursor === report?.total_plies && !!report?.retry_pending;
+  const progressText = retrying ? `Уточняем оценки ходов: осталось ${report?.retry_pending}. Для них увеличено время анализа.` : `Проверено: ${report?.cursor || 0} из ${report?.total_plies || currentGame?.total_plies || 0} полуходов`;
   const alerts = <>{error && <div className="error-notice" role="alert"><span>{error}</span><button aria-label="Закрыть ошибку анализа" onClick={() => setError('')}><X size={16} /></button></div>}{notice && <div className="analysis-notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button className="icon-button" aria-label="Закрыть уведомление анализа" onClick={() => setNotice('')}><X size={15} /></button></div>}</>;
   const controls = <>{!report ? <button className="button primary" disabled={disabled} onClick={() => void startAnalysis()}>{actionBusy === 'start' ? <Spinner /> : <Play size={17} />}Анализировать партию</button> : running ? <button className="button secondary" disabled={disabled} onClick={pause}><Pause size={17} />Пауза</button> : !completed && !report.analysis_outdated ? <button className="button primary" disabled={disabled} onClick={() => resume(report.id, currentGame!.id)}>{stepBusy ? <Spinner /> : <Play size={17} />}Продолжить анализ</button> : null}{report && !running && <button className="button secondary" disabled={disabled} onClick={() => void startAnalysis(true)}>{actionBusy === 'restart' ? <Spinner /> : <RefreshCw size={16} />}Пересчитать партию</button>}</>;
   if (screen === 'list') return <section className="game-analysis-page analysis-list-screen">
@@ -153,10 +165,10 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     {loadingReport ? <div className="panel analysis-placeholder" aria-busy="true"><Spinner /><p>Открываем анализ…</p></div> : !currentGame ? <div className="panel analysis-placeholder"><p>Не удалось найти выбранную партию. Вернитесь к списку и обновите его.</p></div> : screen === 'progress' ? <section className="analysis-progress-card panel" aria-label="Ход анализа">
       <span className="eyebrow">{running ? 'STOCKFISH 19 ПРОВЕРЯЕТ ХОДЫ' : report?.status === 'failed' ? 'АНАЛИЗ ПРЕРВАН' : report ? 'ПРОГРЕСС СОХРАНЁН' : 'ГОТОВЫ К РАЗБОРУ'}</span>
       <h1>{currentGame.white}<span>против {currentGame.black}</span></h1><p>{dateLabel(currentGame.source_game_at || currentGame.date)} · {currentGame.result}</p>
-      <div className={`analysis-progress-ring ${running ? 'running' : ''}`} role="progressbar" aria-label="Анализ ходов партии" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={`${percent}%, проверено ${report?.cursor || 0} из ${report?.total_plies || currentGame.total_plies} полуходов`}>
+      <div className={`analysis-progress-ring ${running ? 'running' : ''}`} role="progressbar" aria-label="Анализ ходов партии" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={`${percent}%, ${progressText}`}>
         <svg viewBox="0 0 140 140" aria-hidden="true"><circle cx="70" cy="70" r="62" /><circle cx="70" cy="70" r="62" pathLength="100" strokeDasharray={`${percent} 100`} /></svg><div><strong>{percent}<small>%</small></strong><span>{running ? 'Анализируем' : report ? 'На паузе' : 'Ожидает запуска'}</span></div>
       </div>
-      <p role="status">Проверено: {report?.cursor || 0} из {report?.total_plies || currentGame.total_plies} полуходов</p>
+      <p role="status">{progressText}</p>
       <div className="analysis-progress-actions">{controls}{!!report?.moves.length && <button className="button primary" onClick={() => openScreen('review')}>Открыть разбор <ArrowRight size={17} /></button>}</div>
       {report?.error && <div className="error-notice" role="alert">{report.error}</div>}
       <p className="analysis-progress-note">{running ? 'Можно свернуть браузер или вернуться к списку. Анализ продолжится на сервере; результат сохранится автоматически.' : report?.analysis_outdated ? 'Сохранённые позиции доступны для просмотра. Новый расчёт обновит оценки всей партии.' : report ? 'Проверенные ходы сохранены. Вы можете продолжить анализ в любое время.' : 'Stockfish 19 проверит ходы обеих сторон, оценит позицию и найдёт лучшие продолжения. Сложные позиции могут потребовать до 30 секунд на ход.'}</p>

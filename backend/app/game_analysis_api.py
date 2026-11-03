@@ -23,6 +23,26 @@ router = APIRouter(prefix="/api/game-analysis")
 ANALYSIS_VERSION = 2  # Stockfish 19 with the deeper default review budget.
 LOCK_NAMESPACE = 782105
 MAX_LIST_GAMES = 200
+MAX_EXTRA_ATTEMPTS = 1
+
+
+def pending_retries(moves: list[dict]) -> list[int]:
+    return [ply for ply, move in enumerate(moves)
+            if (not move.get("assessed") or move.get("category") == "unassessed")
+            and move.get("retry_attempts", 0) < MAX_EXTRA_ATTEMPTS]
+
+
+def resume_report(db: Session, analysis: GameAnalysis):
+    # Legacy completed reports may still have a missing score. Reopen only
+    # those checkpoints, without discarding any already assessed moves.
+    if (analysis.analysis_version == ANALYSIS_VERSION and analysis.status == "completed"
+            and pending_retries(analysis.moves)):
+        lock_analysis(db, analysis.id, analysis.user_id)
+        db.refresh(analysis)
+        if analysis.status == "completed" and pending_retries(analysis.moves):
+            analysis.status = "ready"
+            db.flush()
+    request_background(db, analysis, ANALYSIS_VERSION, True)
 
 
 class StartGameAnalysis(BackgroundStart):
@@ -90,6 +110,7 @@ def analysis_view(analysis: GameAnalysis, game: ImportedGame, job: ImportJob) ->
         "id": analysis.id, "game_id": game.id,
         "game": {**game_view(game, job, analysis), "initial_fen": game.data["initial_fen"]},
         "status": analysis.status, "background_requested": analysis.background_requested, "cursor": analysis.cursor, "total_plies": total,
+        "retry_pending": len(pending_retries(analysis.moves)),
         "analysis_version": analysis.analysis_version,
         "analysis_outdated": analysis.analysis_version != ANALYSIS_VERSION,
         "error": analysis.error, "created_at": analysis.created_at, "updated_at": analysis.updated_at,
@@ -140,7 +161,7 @@ def start_analysis(body: StartGameAnalysis, db: Session = Depends(get_db), user:
     if previous is not None:
         existing, source_game, source_job = owned_analysis(db, previous.id, user.id)
         if body.background and existing.analysis_version == ANALYSIS_VERSION:
-            request_background(db, existing, ANALYSIS_VERSION, True)
+            resume_report(db, existing)
         return analysis_view(existing, source_game, source_job)
     if not 1 <= len(game.data.get("moves", [])) <= 400:
         raise HTTPException(422, "Для анализа нужна завершённая стандартная партия до 400 полуходов.")
@@ -163,7 +184,7 @@ def step_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = 
 
 
 def process_step(analysis_id: int, db: Session, user: User, *, background: bool = False):
-    from .game_analysis_engine import ANALYSIS_ENGINE_OPTIONS, analyse_game_move
+    from .game_analysis_engine import ANALYSIS_ENGINE_OPTIONS, ANALYSIS_RETRY_OPTIONS, analyse_game_move
     analysis, game, job = owned_analysis(db, analysis_id, user.id)
     lock_analysis(db, analysis_id, user.id)
     db.refresh(analysis)
@@ -176,21 +197,33 @@ def process_step(analysis_id: int, db: Session, user: User, *, background: bool 
     if not engine_slots.acquire(blocking=False):
         raise HTTPException(503, "Движок занят. Продолжите анализ через несколько секунд.")
     try:
-        if analysis.cursor != len(analysis.moves) or analysis.cursor >= len(game.data["moves"]):
+        total = len(game.data["moves"])
+        if analysis.cursor != len(analysis.moves) or analysis.cursor > total:
             raise ValueError("Inconsistent analysis cursor")
+        retry = analysis.cursor == total
+        pending = pending_retries(analysis.moves)
+        if retry and not pending:
+            analysis.status, analysis.background_requested, analysis.error = "completed", False, None
+            db.commit()
+            return analysis_view(analysis, game, job)
+        ply = pending[0] if retry else analysis.cursor
         analysis.status, analysis.error, analysis.updated_at = "running", None, now()
         with chess.engine.SimpleEngine.popen_uci(settings().stockfish_path, timeout=5) as engine:
             engine.configure(ANALYSIS_ENGINE_OPTIONS)
-            result = analyse_game_move(game.data, analysis.cursor, engine)
+            result = analyse_game_move(game.data, ply, engine, **(ANALYSIS_RETRY_OPTIONS if retry else {}))
             result["engine_name"] = getattr(engine, "id", {}).get("name", "Stockfish")
         # Assign a new JSON array so SQLAlchemy persists the checkpoint. This
         # route never touches tactic candidates, puzzles, attempts or reviews.
-        if result.get("ply") != analysis.cursor:
+        if result.get("ply") != ply:
             raise ValueError("Unexpected analyzed move")
-        analysis.moves = [*analysis.moves, result]
-        analysis.cursor += 1
+        if retry:
+            result["retry_attempts"] = analysis.moves[ply].get("retry_attempts", 0) + 1
+            analysis.moves = [*analysis.moves[:ply], result, *analysis.moves[ply + 1:]]
+        else:
+            analysis.moves = [*analysis.moves, result]
+            analysis.cursor += 1
         analysis.updated_at = now()
-        if analysis.cursor == len(game.data["moves"]):
+        if analysis.cursor == total and not pending_retries(analysis.moves):
             analysis.status = "completed"
             analysis.background_requested = False
         db.commit()
@@ -223,7 +256,7 @@ def restart_analysis(analysis_id: int, body: BackgroundStart = BackgroundStart()
 @router.post("/{analysis_id}/resume")
 def resume_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
     analysis, game, job = owned_analysis(db, analysis_id, user.id)
-    request_background(db, analysis, ANALYSIS_VERSION, True)
+    resume_report(db, analysis)
     return analysis_view(analysis, game, job)
 
 

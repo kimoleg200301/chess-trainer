@@ -51,6 +51,9 @@ def setup(browser, width=390):
             if path in ('/game-analysis/12/pause','/game-analysis/12/resume'):
                 partial['background_requested']=path.endswith('/resume'); games[1]['background_requested']=partial['background_requested']
                 return route.fulfill(json=partial)
+            if path=='/game-analysis/11/resume':
+                reports[0].update(status='running',background_requested=True)
+                return route.fulfill(json=reports[0])
             if path=='/game-analysis/11/restart':
                 reports[0].update(status='ready',background_requested=True,cursor=0,moves=[],analysis_version=2,analysis_outdated=False)
                 games[0].update(analysis_status='ready',background_requested=True)
@@ -148,6 +151,10 @@ def check_progress(browser):
     page.get_by_role('button',name='Ход анализа · 50%',exact=True).click()
     page.get_by_role('button',name='Продолжить анализ',exact=True).click()
     expect(page.get_by_role('button',name='Пауза',exact=True)).to_be_visible()
+    partial.update(cursor=4,moves=deepcopy(reports[1]['moves']),retry_pending=1);refresh(page)
+    expect(page.get_by_role('progressbar')).to_have_attribute('aria-valuenow','99')
+    expect(page.get_by_role('status')).to_contain_text('Уточняем оценки ходов: осталось 1')
+    expect(page.get_by_role('region',name='Интерактивный разбор партии')).to_have_count(0)
     partial.update(status='completed',cursor=4,moves=deepcopy(reports[1]['moves']),background_requested=False)
     games[1].update(analysis_status='completed',background_requested=False);refresh(page)
     expect(page.get_by_role('region',name='Интерактивный разбор партии')).to_be_visible(timeout=6000)
@@ -180,8 +187,21 @@ def check_old_report(browser):
     print('PASS old report: saved positions retained, explicit restart available, no false running state, upgraded default analysis')
 
 
+def check_missing_score_resume(browser):
+    context,page,errors,posts,games,reports,partial=setup(browser)
+    reports[0]['retry_pending']=1
+    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    expect(page.get_by_role('status')).to_contain_text('Уточняем оценки ходов: осталось 1')
+    expect(page.get_by_role('button',name='Пауза',exact=True)).to_be_visible()
+    assert posts==[('/game-analysis/11/resume',{})]
+    assert reports[0]['cursor']==3 and len(reports[0]['moves'])==3
+    assert not errors,errors
+    context.close()
+    print('PASS missing score: opening a current saved report resumes only pending retries')
+
+
 if __name__=='__main__':
     with sync_playwright() as p:
         browser=p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE','/usr/bin/chromium'),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
-        check_review(browser,390);check_review(browser,1280);check_progress(browser);check_old_report(browser)
+        check_review(browser,390);check_review(browser,1280);check_progress(browser);check_old_report(browser);check_missing_score_resume(browser)
         browser.close()

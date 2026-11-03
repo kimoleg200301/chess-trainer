@@ -42,6 +42,9 @@ ANALYSIS_ENGINE_OPTIONS = {"Threads": 2, "Hash": 256}
 ANALYSIS_NODES = 2_000_000
 ANALYSIS_SEARCH_SECONDS = 3.0
 ANALYSIS_POSITION_SECONDS = 30.0
+# A separate persisted step, with room for engine shutdown inside the API's
+# 60-second graceful-stop/proxy limit. Only unassessed moves use this budget.
+ANALYSIS_RETRY_OPTIONS = {"nodes": 4_000_000, "max_time": 6.0, "max_position_time": 45.0}
 
 
 class _BudgetExceeded(Exception):
