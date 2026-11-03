@@ -37,6 +37,11 @@ VALUES = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330,
           chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 0}
 MIN_DEPTH = 8
 SPECIAL_DEPTH = 12
+# One default review profile. Budget applies to all searches for a played move.
+ANALYSIS_ENGINE_OPTIONS = {"Threads": 2, "Hash": 256}
+ANALYSIS_NODES = 2_000_000
+ANALYSIS_SEARCH_SECONDS = 3.0
+ANALYSIS_POSITION_SECONDS = 30.0
 
 
 class _BudgetExceeded(Exception):
@@ -231,8 +236,9 @@ def _brilliant_evidence(board: chess.Board, played: chess.Move, info: dict,
             "verification_depth": verification[0].get("depth", 0)}
 
 
-def analyse_game_move(game: dict, ply: int, engine, *, nodes: int = 200_000,
-                      max_time: float = 0.8, max_position_time: float = 8.0) -> dict:
+def analyse_game_move(game: dict, ply: int, engine, *, nodes: int = ANALYSIS_NODES,
+                      max_time: float = ANALYSIS_SEARCH_SECONDS,
+                      max_position_time: float = ANALYSIS_POSITION_SECONDS) -> dict:
     """Analyse one actual game move for either side with no database mutations."""
     if nodes < 1 or max_time <= 0 or max_position_time <= 0:
         raise ValueError("Некорректные ограничения анализа.")
@@ -316,11 +322,11 @@ def analyse_game_move(game: dict, ply: int, engine, *, nodes: int = 200_000,
         if loss > 0.03 or played_expected > best_expected + 0.02:
             if "Clear Hash" in getattr(engine, "options", {}):
                 engine.configure({"Clear Hash": None})
-            infos = checked_root(max(nodes * 2, 400_000), max(max_time, 1.0))
+            infos = checked_root(max(nodes * 2, 400_000), max(max_time * 2, 1.0))
             if not infos or not _usable(infos[0], board):
                 result["reason"] = "Повторный расчёт не дал достаточно глубокой оценки."
                 return result
-            played_info, terminal = evaluate_played(infos, max(nodes * 2, 400_000), max(max_time, 1.0))
+            played_info, terminal = evaluate_played(infos, max(nodes * 2, 400_000), max(max_time * 2, 1.0))
             if played_info is None or not _usable(played_info, board):
                 result["reason"] = "Повторный расчёт сыгранного хода не завершён."
                 return result

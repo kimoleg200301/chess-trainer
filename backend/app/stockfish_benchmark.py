@@ -34,8 +34,8 @@ STANDARD_PROFILE = {
 }
 POSITIONS_FILE = Path(__file__).with_name("benchmark_positions.txt")
 PROFILE = {
-    "id": "tactics-stockfish-nnue-multipv2-depth13-v1",
-    "name": "Tactics Lab NNUE / MultiPV 2 workload via Stockfish bench",
+    "id": "tactics-stockfish-nnue-multipv2-depth13-v2",
+    "name": "Fixed diagnostic NNUE / MultiPV 2 workload via Stockfish bench",
     "hash_mib": 32,
     "threads": 1,
     "limit": 13,
@@ -46,7 +46,7 @@ PROFILE = {
     "multipv": 2,
     "nnue": True,
     "evaluation_type": "NNUE",
-    "command_arguments": ["bench", "32", "1", "13", "benchmark_positions.txt", "depth", "NNUE"],
+    "command_arguments": ["bench", "32", "1", "13", "benchmark_positions.txt", "depth"],
 }
 PROFILES = {"app": PROFILE, "standard": STANDARD_PROFILE}
 DEFAULT_REPETITIONS = 3

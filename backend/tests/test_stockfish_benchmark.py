@@ -76,7 +76,7 @@ def test_app_profile_records_reproducibility_and_weighted_rates(executable, monk
     monkeypatch.setattr(benchmark.subprocess, "run", run)
     result = benchmark.run_benchmark(str(executable))
     assert len(calls) == 3
-    assert all(command == [str(executable), "bench", "32", "1", "13", str(benchmark.POSITIONS_FILE), "depth", "NNUE"]
+    assert all(command == [str(executable), "bench", "32", "1", "13", str(benchmark.POSITIONS_FILE), "depth"]
                for command, _ in calls)
     assert all(options["timeout"] == 60 and options["stdin"] == subprocess.DEVNULL
                and options["check"] is False for _, options in calls)

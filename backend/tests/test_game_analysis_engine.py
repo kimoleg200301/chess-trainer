@@ -104,6 +104,29 @@ def test_disagreement_not_presented_as_perfect_accuracy():
     assert not result['assessed'] and result['accuracy'] is None
     assert result['category']=='unassessed' and 'расходятся' in result['reason']
 
+def test_default_review_spends_more_on_verification_and_obeys_total_deadline(monkeypatch):
+    import app.game_analysis_engine as module
+    clock = [0.0]
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    class TimedEngine:
+        def __init__(self): self.calls = []
+        def analyse(self, board, limit, **kwargs):
+            self.calls.append((limit.nodes, limit.time))
+            clock[0] += limit.time
+            if kwargs.get('root_moves'): return info(board, 'e2e4', cp=-500)
+            return [info(board, 'd2d4', cp=0), info(board, 'c2c4', cp=-10)]
+    engine = TimedEngine()
+    result = analyse_game_move(game_with('e2e4'), 0, engine)
+    assert result['assessed'] and result['category'] == 'blunder'
+    assert engine.calls == [(2_000_000, 3), (2_000_000, 3), (4_000_000, 6), (4_000_000, 6)]
+    assert clock[0] == 18
+    # A smaller remaining deadline must shorten the next search, not overrun it.
+    clock[0] = 0
+    engine = TimedEngine()
+    result = analyse_game_move(game_with('e2e4'), 0, engine, max_position_time=10)
+    assert engine.calls[-1] == (4_000_000, 4)
+    assert clock[0] == 10 and not result['assessed']
+
 def test_forced_and_immediate_mate_need_no_engine_and_have_different_denominators():
     class NoSearch:
         def analyse(self,*args,**kwargs):raise AssertionError('No search needed')
@@ -128,12 +151,12 @@ def test_stalemate_loses_forced_win_instead_of_being_scored_mate():
 def test_insufficient_depth_and_deadline_are_not_rated(monkeypatch):
     class Shallow:
         def analyse(self,board,limit,**kwargs):
-            assert limit.time<=2
+            assert limit.time<=6
             return [info(board,'e2e4',depth=2)]
     result=analyse_game_move(game_with('e2e4'),0,Shallow())
     assert result['category']=='unassessed' and result['accuracy'] is None
     import app.game_analysis_engine as module
-    ticks=iter([0,10]);monkeypatch.setattr(module.time,'monotonic',lambda:next(ticks))
+    ticks=iter([0,31]);monkeypatch.setattr(module.time,'monotonic',lambda:next(ticks))
     result=analyse_game_move(game_with('e2e4'),0,Shallow())
     assert result['category']=='unassessed' and 'предел времени' in result['reason']
 
@@ -223,7 +246,7 @@ def test_adaptive_retry_gives_unreliable_search_more_time(failure_stage):
             return [info(board, 'd2d4', cp=0, depth=2 if fail else 18), info(board, 'c2c4', cp=-10)]
 
     engine = NeedsRetry()
-    result = analyse_game_move(game_with('e2e4'), 0, engine)
+    result = analyse_game_move(game_with('e2e4'), 0, engine, max_time=.5)
     assert engine.retry_times == [2]
     assert result['assessed'] and result['category'] == 'blunder'
     assert result['accuracy'] < 20

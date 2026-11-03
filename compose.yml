@@ -20,6 +20,8 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    # Let a bounded 30-second search save its checkpoint before shutdown.
+    stop_grace_period: 60s
     environment:
       DATABASE_URL: postgresql+psycopg://trainer:${POSTGRES_PASSWORD:?Run configure}@db:5432/tactics
       AUTH_USERNAME: ${AUTH_USERNAME:-trainer}

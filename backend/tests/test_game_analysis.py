@@ -61,9 +61,12 @@ def fake_engine(monkeypatch):
             pass
 
         def configure(self, options):
-            assert options == {"Threads": 1, "Hash": 32}
+            # The background queue fixture also uses this fake for imports.
+            assert options in ({"Threads": 1, "Hash": 32}, {"Threads": 2, "Hash": 256})
+            self.options = options
 
     def analyse(game, ply, engine, **kwargs):
+        assert engine.options == {"Threads": 2, "Hash": 256}
         calls.append((ply, kwargs))
         if ply in failures:
             raise chess.engine.EngineTerminatedError("disposable integration failure")
@@ -151,7 +154,7 @@ def test_analysis_checks_both_sides_and_persists_each_step_without_training_muta
     assert analysis["summary"]["white"]["accuracy"] < analysis["summary"]["black"]["accuracy"]
     assert analysis["summary"]["white"]["coverage"] == 100
     assert len(fake_engine[0]) == 4
-    assert all(kwargs == {"max_position_time": 8} for _, kwargs in fake_engine[0])
+    assert all(kwargs == {} for _, kwargs in fake_engine[0])  # Production uses the default profile.
     assert step(logged, analysis["id"]) == analysis and len(fake_engine[0]) == 4
     assert start(logged, game_id) == analysis
     assert counts() == before
@@ -209,7 +212,7 @@ def test_restart_only_clears_report_and_upgrades_old_version(logged, fake_engine
     analysis = step(logged, start(logged, game_id)["id"])
     before = counts()
     with Session(engine()) as db:
-        db.get(GameAnalysis, analysis["id"]).analysis_version = 0
+        db.get(GameAnalysis, analysis["id"]).analysis_version = 1
         db.commit()
     stale = logged.get(f"/api/game-analysis/{analysis['id']}").json()
     assert stale["analysis_outdated"]

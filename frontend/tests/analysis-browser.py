@@ -31,7 +31,7 @@ def fixtures():
         if index == 1:
             moves[-1].update(score_after=None, mate_after=1)
         side=dict(accuracy=90,provisional_accuracy=90,counts={},total_moves=2,analysed_moves=2,assessed_moves=2,accuracy_moves=2,coverage=100,complete=True,accuracy_complete=True)
-        reports.append(dict(id=11+index,game_id=index+1,game={**games[index],'initial_fen':positions[0]['before_fen']},status='completed',background_requested=False,cursor=len(moves),total_plies=len(moves),analysis_version=1,analysis_outdated=False,error=None,created_at='',updated_at='',summary={'white':deepcopy(side),'black':deepcopy(side),'complete':True},moves=moves))
+        reports.append(dict(id=11+index,game_id=index+1,game={**games[index],'initial_fen':positions[0]['before_fen']},status='completed',background_requested=False,cursor=len(moves),total_plies=len(moves),analysis_version=2,analysis_outdated=False,error=None,created_at='',updated_at='',summary={'white':deepcopy(side),'black':deepcopy(side),'complete':True},moves=moves))
     return games, reports
 
 
@@ -52,7 +52,7 @@ def setup(browser, width=390):
                 partial['background_requested']=path.endswith('/resume'); games[1]['background_requested']=partial['background_requested']
                 return route.fulfill(json=partial)
             if path=='/game-analysis/11/restart':
-                reports[0].update(status='ready',background_requested=True,cursor=0,moves=[])
+                reports[0].update(status='ready',background_requested=True,cursor=0,moves=[],analysis_version=2,analysis_outdated=False)
                 games[0].update(analysis_status='ready',background_requested=True)
                 return route.fulfill(json=reports[0])
             raise AssertionError(path)
@@ -159,8 +159,28 @@ def check_progress(browser):
     print('PASS progress: start, 25/50%, no pause on leaving, persisted partial report, explicit pause/resume, automatic completed review, terminal mate')
 
 
+def check_old_report(browser):
+    context,page,errors,posts,games,reports,partial=setup(browser)
+    reports[0].update(analysis_version=1,analysis_outdated=True,status='running',background_requested=True,cursor=1)
+    reports[0]['moves']=reports[0]['moves'][:1]
+    games[0].update(analysis_outdated=True,analysis_status='running',background_requested=True)
+    refresh(page)
+    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    expect(page.get_by_role('button',name='Пересчитать партию',exact=True)).to_be_visible()
+    expect(page.get_by_role('button',name='Пауза',exact=True)).to_have_count(0)
+    expect(page.get_by_role('button',name='Продолжить анализ',exact=True)).to_have_count(0)
+    expect(page.locator('.analysis-notice')).to_contain_text('Stockfish 19')
+    assert not posts and len(reports[0]['moves'])==1
+    page.get_by_role('button',name='Пересчитать партию',exact=True).click()
+    expect(page.get_by_role('button',name='Пауза',exact=True)).to_be_visible()
+    assert posts==[('/game-analysis/11/restart',{'background':True})]
+    assert not errors,errors
+    context.close()
+    print('PASS old report: saved positions retained, explicit restart available, no false running state, upgraded default analysis')
+
+
 if __name__=='__main__':
     with sync_playwright() as p:
         browser=p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE','/usr/bin/chromium'),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
-        check_review(browser,390);check_review(browser,1280);check_progress(browser)
+        check_review(browser,390);check_review(browser,1280);check_progress(browser);check_old_report(browser)
         browser.close()

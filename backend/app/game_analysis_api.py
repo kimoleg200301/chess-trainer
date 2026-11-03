@@ -20,7 +20,7 @@ from .models import GameAnalysis, ImportedGame, ImportJob, User, now
 from .security import current_user
 
 router = APIRouter(prefix="/api/game-analysis")
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2  # Stockfish 19 with the deeper default review budget.
 LOCK_NAMESPACE = 782105
 MAX_LIST_GAMES = 200
 
@@ -163,7 +163,7 @@ def step_analysis(analysis_id: int, db: Session = Depends(get_db), user: User = 
 
 
 def process_step(analysis_id: int, db: Session, user: User, *, background: bool = False):
-    from .game_analysis_engine import analyse_game_move
+    from .game_analysis_engine import ANALYSIS_ENGINE_OPTIONS, analyse_game_move
     analysis, game, job = owned_analysis(db, analysis_id, user.id)
     lock_analysis(db, analysis_id, user.id)
     db.refresh(analysis)
@@ -180,8 +180,9 @@ def process_step(analysis_id: int, db: Session, user: User, *, background: bool 
             raise ValueError("Inconsistent analysis cursor")
         analysis.status, analysis.error, analysis.updated_at = "running", None, now()
         with chess.engine.SimpleEngine.popen_uci(settings().stockfish_path, timeout=5) as engine:
-            engine.configure({"Threads": 1, "Hash": 32})
-            result = analyse_game_move(game.data, analysis.cursor, engine, max_position_time=8)
+            engine.configure(ANALYSIS_ENGINE_OPTIONS)
+            result = analyse_game_move(game.data, analysis.cursor, engine)
+            result["engine_name"] = getattr(engine, "id", {}).get("name", "Stockfish")
         # Assign a new JSON array so SQLAlchemy persists the checkpoint. This
         # route never touches tactic candidates, puzzles, attempts or reviews.
         if result.get("ply") != analysis.cursor:
