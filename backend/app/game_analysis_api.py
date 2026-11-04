@@ -138,7 +138,8 @@ def analysis_view(analysis: GameAnalysis, game: ImportedGame, job: ImportJob) ->
 
 @router.get("/games")
 def list_games(db: Session = Depends(get_db), user: User = Depends(current_user),
-               selected_game_id: Annotated[int | None, Query(gt=0)] = None):
+               selected_game_id: Annotated[int | None, Query(gt=0)] = None,
+               q: Annotated[str, Query(max_length=80)] = ""):
     # One current owned import represents each real game even when monthly
     # batches overlap. Window ranking works with SQLAlchemy 2.0 and newer.
     rank_order = [ImportedGame.id.desc()]
@@ -160,14 +161,19 @@ def list_games(db: Session = Depends(get_db), user: User = Depends(current_user)
         case((func.pg_input_is_valid(stamp, "timestamp with time zone"), cast(stamp, timestamp_type))),
         case((func.pg_input_is_valid(legacy_date, "timestamp with time zone"), cast(legacy_date, timestamp_type))),
     )
-    recent_ids = (select(ImportedGame.id).where(ImportedGame.id.in_(latest_ids))
+    nickname = q.strip()
+    matches = or_(ImportedGame.data["white"].astext.icontains(nickname, autoescape=True),
+                  ImportedGame.data["black"].astext.icontains(nickname, autoescape=True)) if nickname else True
+    # Search the owned archive before limiting the results, including older games.
+    recent_ids = (select(ImportedGame.id).where(ImportedGame.id.in_(latest_ids), matches)
                   .order_by(game_time.desc().nulls_last(), ImportedGame.id.desc()).limit(MAX_LIST_GAMES))
     favorites = {row.fingerprint: row for row in db.scalars(select(GameFavorite).where(GameFavorite.user_id == user.id))}
     saved_keys = [key for key, value in favorites.items() if value.is_favorite]
     # Saved games remain accessible when they fall outside the recent-game cap.
     # Keep a directly opened game available even after it is unstarred.
     rows = db.execute(select(ImportedGame, ImportJob).join(ImportJob, ImportJob.id == ImportedGame.job_id)
-                      .where(ImportedGame.id.in_(latest_ids), or_(ImportedGame.id.in_(recent_ids),
+                      .where(ImportedGame.id.in_(latest_ids), or_(matches, ImportedGame.id == selected_game_id),
+                             or_(ImportedGame.id.in_(recent_ids),
                              ImportedGame.fingerprint.in_(saved_keys), ImportedGame.id == selected_game_id))
                       .order_by(game_time.desc().nulls_last(), ImportedGame.id.desc())).all()
     fingerprints = [game.fingerprint for game, _ in rows]

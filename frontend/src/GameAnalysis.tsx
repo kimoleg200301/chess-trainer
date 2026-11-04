@@ -20,6 +20,18 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? 'Дата не указана' : date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 function Spinner() { return <LoaderCircle size={17} className="spinner" aria-hidden="true" />; }
+function listQuery(search: string, favorites: boolean) {
+  const params = new URLSearchParams();
+  if (favorites) params.set('filter', 'favorites');
+  if (search) params.set('q', search);
+  return params.size ? '?' + params.toString() : '';
+}
+function gamesUrl(search: string, gameId: number | null) {
+  const params = new URLSearchParams();
+  if (gameId) params.set('selected_game_id', String(gameId));
+  if (search) params.set('q', search);
+  return '/game-analysis/games' + (params.size ? '?' + params.toString() : '');
+}
 
 function estimatedAccuracy(result: GameSideSummary, completed: boolean): number | null {
   const value = result.estimated_chesscom_accuracy;
@@ -44,7 +56,10 @@ function AccuracyCard({ side, name, result, completed, chesscomAccuracy }: { sid
 export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: { visible: boolean; onDataChanged?: () => void; onFocusChange?: (focused: boolean) => void }) {
   const { pathname, searchParams } = useRoute();
   const favoritesOnly = searchParams.get('filter') === 'favorites';
-  const filterQuery = favoritesOnly ? '?filter=favorites' : '';
+  const searchInput = (searchParams.get('q') || '').slice(0, 80);
+  const searchTerm = searchInput.trim().toLowerCase();
+  const searchRef = useRef(searchTerm); searchRef.current = searchTerm;
+  const filterQuery = listQuery(searchInput, favoritesOnly);
   const route = /^\/analysis\/([1-9]\d*)(\/review)?$/.exec(pathname);
   const selectedGame = route && Number.isSafeInteger(Number(route[1])) ? Number(route[1]) : null;
   const screen: 'list' | 'progress' | 'review' = selectedGame === null ? 'list' : route?.[2] ? 'review' : 'progress';
@@ -62,7 +77,10 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   const [games, setGames] = useState<GameAnalysisSource[]>([]);
   const { mergeFavorites, toggleFavorite, savingFavorite, favoriteError, clearFavoriteError } = useGameFavorites(setGames);
   const favoriteGames = games.filter(game => game.is_favorite);
-  const displayedGames = favoritesOnly ? favoriteGames : games;
+  const displayedGames = (favoritesOnly ? favoriteGames : games).filter(game =>
+    !searchTerm || game.white.toLowerCase().includes(searchTerm) || game.black.toLowerCase().includes(searchTerm));
+  const [loadedSearch, setLoadedSearch] = useState<string | null>(null);
+  const [listError, setListError] = useState('');
   const [loadedReport, setReport] = useState<{ gameId: number; value: GameAnalysisReport } | null>(null), [selectedPly, setSelectedPly] = useState<number | null>(null);
   const report = loadedReport?.gameId === selectedGame ? loadedReport.value : null;
   const [gamesLoaded, setGamesLoaded] = useState(false);
@@ -129,20 +147,27 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     finally { if (mounted.current && selectionVersion.current === version) setLoadingReport(false); }
   }, [setCurrentReport, updateGame]);
   const loadGames = useCallback(async () => {
-    const version = ++listVersion.current, revision = gamesRevision.current; setLoadingGames(true);
+    const version = ++listVersion.current, revision = gamesRevision.current; setLoadingGames(true); setListError('');
     try {
-      const result = await api<GameAnalysisList>('/game-analysis/games' + (selectedRef.current ? `?selected_game_id=${selectedRef.current}` : ''));
-      if (!mounted.current || version !== listVersion.current) return;
+      const result = await api<GameAnalysisList>(gamesUrl(searchTerm, selectedRef.current));
+      if (!mounted.current || version !== listVersion.current || searchTerm !== searchRef.current) return;
       acceptSync(result.sync);
+      setLoadedSearch(searchTerm); setListError('');
       setGames(previous => mergeFavorites(revision === gamesRevision.current ? result.games : result.games.map(game => previous.find(item => item.id === game.id && item.analysis_id) || game)));
-    } catch (err) { if (mounted.current && version === listVersion.current) setError(errorText(err)); }
-    finally { if (mounted.current && version === listVersion.current) { setLoadingGames(false); setGamesLoaded(true); } }
-  }, [acceptSync, mergeFavorites]);
+    } catch (err) { if (mounted.current && version === listVersion.current && searchTerm === searchRef.current) setListError(errorText(err)); }
+    finally { if (mounted.current && version === listVersion.current && searchTerm === searchRef.current) { setLoadingGames(false); setGamesLoaded(true); } }
+  }, [acceptSync, mergeFavorites, searchTerm]);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  useEffect(() => { if (visible) void loadGames(); }, [visible, loadGames]);
+  useEffect(() => {
+    if (!visible) return;
+    setListError('');
+    if (!searchTerm) { void loadGames(); return; }
+    const timer = window.setTimeout(() => void loadGames(), 250);
+    return () => window.clearTimeout(timer);
+  }, [visible, loadGames, searchTerm]);
   const currentGame = games.find(game => game.id === selectedGame);
   useEffect(() => {
     selectionVersion.current++;
@@ -157,14 +182,15 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   }, [visible, selectedGame, currentGame?.analysis_id, loadReport]);
   useBackgroundRefresh(async () => {
     if (stepFlight.current || actionFlight.current) return;
-    const id = analysisRef.current, gameId = selectedRef.current, revision = reportRevision.current, selection = selectionVersion.current, list = gamesRevision.current;
+    const id = analysisRef.current, gameId = selectedRef.current, revision = reportRevision.current, selection = selectionVersion.current, list = gamesRevision.current, query = searchTerm;
     try {
       const [result, current] = await Promise.all([
-        api<GameAnalysisList>('/game-analysis/games' + (gameId ? `?selected_game_id=${gameId}` : '')),
+        api<GameAnalysisList>(gamesUrl(query, gameId)),
         id === null ? Promise.resolve(null) : api<GameAnalysisReport>(`/game-analysis/${id}`),
       ]);
-      if (!mounted.current) return;
+      if (!mounted.current || query !== searchRef.current) return;
       acceptSync(result.sync);
+      setLoadedSearch(query); setListError('');
       if (list === gamesRevision.current) setGames(mergeFavorites(result.games));
       if (current && selectedRef.current === gameId && analysisRef.current === id && revision === reportRevision.current && selection === selectionVersion.current) {
         setCurrentReport(current); updateGame(current, gameId!);
@@ -172,7 +198,7 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
         const game = result.games.find(item => item.id === gameId);
         if (game?.analysis_id != null && screenRef.current !== 'list') void loadReport(game);
       }
-    } catch (err) { if (mounted.current) setError(errorText(err)); }
+    } catch (err) { if (mounted.current && query === searchRef.current) setError(errorText(err)); }
   }, visible);
   async function importGames(event: FormEvent) {
     event.preventDefault(); if (actionFlight.current || stepFlight.current) return;
@@ -200,7 +226,8 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   const percent = actionBusy === 'restart' ? 0 : completed ? 100 : report?.total_plies ? Math.min(99, Math.floor(report.cursor / report.total_plies * 100)) : 0;
   const retrying = !completed && report?.cursor === report?.total_plies && !!report?.retry_pending;
   const progressText = retrying ? `Уточняем оценки ходов: осталось ${report?.retry_pending}. Для них увеличено время анализа.` : `Проверено: ${report?.cursor || 0} из ${report?.total_plies || currentGame?.total_plies || 0} полуходов`;
-  const alerts = <>{(error || favoriteError) && <div className="error-notice" role="alert"><span>{error || favoriteError}</span><button aria-label="Закрыть ошибку анализа" onClick={() => { setError(''); clearFavoriteError(); }}><X size={16} /></button></div>}{notice && <div className="analysis-notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button className="icon-button" aria-label="Закрыть уведомление анализа" onClick={() => setNotice('')}><X size={15} /></button></div>}</>;
+  const searchingGames = loadingGames || (loadedSearch !== searchTerm && !listError);
+  const alerts = <>{(error || listError || favoriteError) && <div className="error-notice" role="alert"><span>{error || listError || favoriteError}</span><button aria-label="Закрыть ошибку анализа" onClick={() => { setError(''); setListError(''); clearFavoriteError(); }}><X size={16} /></button></div>}{notice && <div className="analysis-notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button className="icon-button" aria-label="Закрыть уведомление анализа" onClick={() => setNotice('')}><X size={15} /></button></div>}</>;
   const controls = <>{!report ? <button className="button primary" disabled={disabled} onClick={() => void startAnalysis()}>{actionBusy === 'start' ? <Spinner /> : <Play size={17} />}Анализировать партию</button> : running ? <button className="button secondary" disabled={disabled} onClick={pause}><Pause size={17} />Пауза</button> : !completed && !report.analysis_outdated ? <button className="button primary" disabled={disabled} onClick={() => resume(report.id, currentGame!.id)}>{stepBusy ? <Spinner /> : <Play size={17} />}Продолжить анализ</button> : null}{report && !running && <button className="button secondary" disabled={disabled} onClick={() => void startAnalysis(true)}>{actionBusy === 'restart' ? <Spinner /> : <RefreshCw size={16} />}Пересчитать партию</button>}</>;
   const favoriteButton = (game: GameAnalysisSource) => <button type="button" className="icon-button analysis-favorite" aria-pressed={!!game.is_favorite} aria-label={`${game.is_favorite ? 'Убрать из избранного' : 'Добавить в избранное'}: ${game.white} — ${game.black}`} title={game.is_favorite ? 'Убрать из избранного' : 'Добавить в избранное'} disabled={savingFavorite(game)} onClick={() => void toggleFavorite(game)}>{savingFavorite(game) ? <Spinner /> : <Star size={21} fill={game.is_favorite ? 'currentColor' : 'none'} />}</button>;
   if (screen === 'list') return <section className="game-analysis-page analysis-list-screen">
@@ -220,10 +247,12 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     <details className="panel analysis-import-disclosure"><summary>Загрузить архив за другой месяц</summary><form className="analysis-import" onSubmit={event => void importGames(event)}><p>Загрузка партий для ника, указанного выше.</p><div className="analysis-import-fields"><label>Месяц <span>необязательно</span><input type="month" value={month} onChange={event => setMonth(event.target.value)} min="2007-01" max={new Date().toISOString().slice(0, 7)} disabled={actionBusy !== null} /></label><label>Количество<input type="number" value={limit} onChange={event => setLimit(Number(event.target.value))} min="1" max="50" required disabled={actionBusy !== null} /></label><button className="button secondary" disabled={disabled || syncSending || !username.trim()}>{actionBusy === 'import' ? <Spinner /> : <Search size={16} />}{actionBusy === 'import' ? 'Загружаем…' : 'Загрузить партии'}</button></div></form></details>
     {alerts}
     <section className="analysis-game-picker"><div className="panel-title"><h2>{favoritesOnly ? 'Избранные партии' : 'Ваши партии'} <span className="subtle-count">{displayedGames.length}</span></h2><button className="icon-button" aria-label="Обновить партии для анализа" title="Синхронизировать с Chess.com" disabled={loadingGames || syncSending || syncWaiting || syncCooldown > 0} onClick={() => { if (username.trim()) void synchronize(); else void loadGames(); }}>{loadingGames || syncSending || syncWaiting ? <Spinner /> : <RefreshCw size={18} />}</button></div>
-      <div className="analysis-list-filters" role="group" aria-label="Фильтр партий"><button className="button secondary" aria-pressed={!favoritesOnly} onClick={() => navigate('/analysis')}>Все партии</button><button className="button secondary" aria-label="Избранные" aria-pressed={favoritesOnly} onClick={() => navigate('/analysis?filter=favorites')}><Star size={16} />Избранные <span aria-hidden="true">{favoriteGames.length}</span></button></div>
+      <div className="analysis-nickname-search"><label htmlFor="analysis-nickname">Поиск по нику</label><div><Search size={18} aria-hidden="true" /><input id="analysis-nickname" type="search" value={searchInput} maxLength={80} placeholder="Ник белых или чёрных" autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} onChange={event => navigate('/analysis' + listQuery(event.target.value, favoritesOnly), { replace: true })} />{searchInput && <button className="icon-button" aria-label="Очистить поиск по нику" onClick={() => navigate('/analysis' + listQuery('', favoritesOnly), { replace: true })}><X size={18} /></button>}</div><small>Можно ввести часть ника. Регистр не важен.</small></div>
+      <div className="analysis-list-filters" role="group" aria-label="Фильтр партий"><button className="button secondary" aria-pressed={!favoritesOnly} onClick={() => navigate('/analysis' + listQuery(searchInput, false))}>Все партии</button><button className="button secondary" aria-label="Избранные" aria-pressed={favoritesOnly} onClick={() => navigate('/analysis' + listQuery(searchInput, true))}><Star size={16} />Избранные <span aria-hidden="true">{favoriteGames.length}</span></button></div>
       <div className="analysis-game-options">{displayedGames.map(game => <article className="analysis-game-card" key={game.id}><Link href={`/analysis/${game.id}${game.analysis_status === 'completed' ? '/review' : ''}${filterQuery}`} aria-label={`Открыть партию ${game.white} — ${game.black}`}><div className="analysis-game-card-heading"><span className="analysis-game-result">{game.result}</span></div><strong>{game.white}<span>— {game.black}</span></strong><small>{dateLabel(game.source_game_at || game.date)} · {game.total_plies} полуходов</small><span className={`analysis-list-state ${game.analysis_status === 'completed' ? 'ready' : ''}`}>{game.analysis_status === 'completed' ? 'Открыть разбор' : game.analysis_outdated ? 'Доступен пересчёт' : game.analysis_status === 'failed' ? 'Повторить анализ' : game.analysis_id != null ? game.background_requested ? 'Анализируем в фоне' : 'Продолжить анализ' : 'Анализировать'}<ArrowRight size={18} /></span></Link>{favoriteButton(game)}</article>)}</div>
-      {favoritesOnly && !displayedGames.length && <div className="panel analysis-placeholder"><Star size={32} /><h2>{loadingGames ? 'Загружаем избранное…' : 'Пока нет избранных партий'}</h2><p>Нажмите звёздочку рядом с партией или на экране разбора, чтобы вернуться к ней позже.</p><button className="button secondary" onClick={() => navigate('/analysis')}>Показать все партии</button></div>}
-      {!favoritesOnly && !games.length && <div className="panel analysis-placeholder"><Gauge size={32} /><h2>{loadingGames ? 'Загружаем партии…' : 'Пока нет партий'}</h2><p>Загрузите партии Chess.com по нику выше. Уже импортированные партии из раздела «Мои партии» тоже появятся здесь.</p></div>}
+      {searchTerm && !displayedGames.length && <div className="panel analysis-placeholder"><Search size={32} /><h2>{searchingGames ? 'Ищем партии…' : listError ? 'Не удалось выполнить поиск' : 'Партии не найдены'}</h2><p>{searchingGames ? 'Проверяем сохранённые партии…' : listError ? 'Повторите поиск, когда соединение восстановится.' : favoritesOnly ? 'Среди избранных нет партий с таким ником.' : 'Попробуйте другой ник или введите его часть.'}</p><button className="button secondary" onClick={() => navigate('/analysis' + listQuery('', favoritesOnly), { replace: true })}>Сбросить поиск</button></div>}
+      {!searchTerm && favoritesOnly && !displayedGames.length && <div className="panel analysis-placeholder"><Star size={32} /><h2>{loadingGames ? 'Загружаем избранное…' : 'Пока нет избранных партий'}</h2><p>Нажмите звёздочку рядом с партией или на экране разбора, чтобы вернуться к ней позже.</p><button className="button secondary" onClick={() => navigate('/analysis')}>Показать все партии</button></div>}
+      {!searchTerm && !favoritesOnly && !games.length && <div className="panel analysis-placeholder"><Gauge size={32} /><h2>{loadingGames ? 'Загружаем партии…' : 'Пока нет партий'}</h2><p>Загрузите партии Chess.com по нику выше. Уже импортированные партии из раздела «Мои партии» тоже появятся здесь.</p></div>}
     </section>
   </section>;
   return <section className={`game-analysis-page analysis-focused analysis-${screen}-screen`}>
