@@ -19,7 +19,8 @@ from .background import BackgroundStart, request_background
 from .config import settings
 from .db import get_db
 from .engine_resources import engine_slots
-from .game_sources import chesscom_games, safe_game_url, source_game_time
+from .game_sources import (chesscom_accuracies, chesscom_game_url, chesscom_games,
+                           safe_game_url, source_game_time)
 from .models import ImportJob, ImportedGame, Improvement, Puzzle, User, now
 from .security import current_user
 
@@ -123,6 +124,46 @@ def job_view(db: Session, job: ImportJob, details: bool = True) -> dict:
     return result
 
 
+def refresh_chesscom_accuracies(db: Session, user_id: int, games: list[dict]) -> dict[str, dict]:
+    """Refresh reference scores in every owned copy, keeping local analysis intact.
+
+    The caller holds the user lock. A public archive can omit a previously
+    calculated score, so only valid observed sides update stored values. Return
+    remembered values as well, so a new overlapping import cannot hide them.
+    """
+    incoming_hashes, incoming_urls = {}, {}
+    for game in games:
+        scores = chesscom_accuracies(game.get("chesscom_accuracies"))
+        if not scores:
+            continue
+        incoming_hashes.setdefault(fingerprint(game), {}).update(scores)
+        if url := chesscom_game_url(game.get("game_url")):
+            incoming_urls.setdefault(url, {}).update(scores)
+    stored_hashes, stored_urls = {}, {}
+    existing = db.scalars(select(ImportedGame).join(ImportJob).where(
+        ImportJob.user_id == user_id, ImportJob.source == "chesscom").order_by(ImportedGame.id))
+    for stored in existing:
+        url = chesscom_game_url(stored.data.get("game_url"))
+        scores = chesscom_accuracies(stored.data.get("chesscom_accuracies")) or {}
+        updates = {**incoming_urls.get(url, {}), **incoming_hashes.get(stored.fingerprint, {})}
+        if updates:
+            scores = {**scores, **updates}
+            if stored.data.get("chesscom_accuracies") != scores:
+                stored.data = {**stored.data, "chesscom_accuracies": scores}
+        if scores:
+            stored_hashes.setdefault(stored.fingerprint, {}).update(scores)
+            if url:
+                stored_urls.setdefault(url, {}).update(scores)
+    result = {}
+    for game in games:
+        key, url = fingerprint(game), chesscom_game_url(game.get("game_url"))
+        scores = {**stored_urls.get(url, {}), **stored_hashes.get(key, {}),
+                  **incoming_urls.get(url, {}), **incoming_hashes.get(key, {})}
+        if scores:
+            result[key] = scores
+    return result
+
+
 def create_job(db: Session, user: User, source: str, games: list[dict], username=None, month=None) -> ImportJob:
     unique = {fingerprint(game): game for game in games}
     if not unique:
@@ -130,8 +171,13 @@ def create_job(db: Session, user: User, source: str, games: list[dict], username
     identity = hashlib.sha256(json.dumps([ANALYSIS_VERSION, source, username, month, sorted(unique)], separators=(",", ":")).encode()).hexdigest()
     # Serializes repeated imports and generated-progress restore for this user.
     lock_user(db, user.id)
+    if source == "chesscom":
+        references = refresh_chesscom_accuracies(db, user.id, games)
+        unique = {key: {**game, "chesscom_accuracies": references.get(key)}
+                  for key, game in unique.items()}
     previous = db.scalar(select(ImportJob).where(ImportJob.user_id == user.id, ImportJob.identity_key == identity))
     if previous:
+        db.commit()
         return previous
     # Older releases included the analysis version in identity. Identical games
     # still reopen their existing batch; the explicit rerun upgrades its analysis.
@@ -141,6 +187,7 @@ def create_job(db: Session, user: User, source: str, games: list[dict], username
     for prior_job in possible:
         hashes = set(db.scalars(select(ImportedGame.fingerprint).where(ImportedGame.job_id == prior_job.id)))
         if hashes == set(unique):
+            db.commit()
             return prior_job
     count = db.scalar(select(func.count()).select_from(ImportJob).where(ImportJob.user_id == user.id))
     if count >= 100:

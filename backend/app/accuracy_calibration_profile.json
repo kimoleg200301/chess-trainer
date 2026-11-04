@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "kimskiy1114-300plus5-20261104-v1",
+  "username": "kimskiy1114",
+  "time_control": "300+5",
+  "analysis_version": 2,
+  "family": "loss_exponential",
+  "parameters": {
+    "decay": 6.555042015529255
+  },
+  "formula": "100 * exp(-decay * mean(expected_loss))",
+  "model_digest": "9ac6e0a07ea9d732f2f2cb54ff05b4cfeed2057a1bd6a93757a37a6b153e88d9",
+  "training_games": 36,
+  "validation_games": 12,
+  "test_metrics": {
+    "games": 12,
+    "samples": 12,
+    "baseline_mae_pp": 6.8791666666666655,
+    "calibrated_mae_pp": 3.6041666666666665,
+    "mae_reduction_pp": 3.2749999999999986,
+    "bootstrap_95pct_interval_pp": [
+      1.018333333333332,
+      5.569999999999999
+    ]
+  },
+  "depth_transfer_check": {
+    "games": 3,
+    "baseline_mae_pp": 9.99333333333334,
+    "calibrated_mae_pp": 5.886666666666666,
+    "note": "Small exploratory check at production engine settings, not a generalization guarantee."
+  },
+  "scope_note": "Reviewed standard 300+5 games of this player only. Approximation, not Chess.com CAPS2 or per-move ground truth."
+}

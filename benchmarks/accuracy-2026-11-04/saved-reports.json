@@ -1,0 +1,34 @@
+{
+  "kind": "supplementary_preexisting_production_reports",
+  "model_digest": "9ac6e0a07ea9d732f2f2cb54ff05b4cfeed2057a1bd6a93757a37a6b153e88d9",
+  "games": 2,
+  "baseline_mae_pp": 8.109999999999992,
+  "calibrated_mae_pp": 5.839999999999996,
+  "predictions": [
+    {
+      "url": "https://www.chess.com/game/live/186233865214",
+      "time_control_source": "stored PGN header",
+      "analysis_version": 2,
+      "reference": 88.18,
+      "baseline": 91.2,
+      "prediction": 86.7,
+      "scored_moves": 17,
+      "engine_names": [
+        "Stockfish 19"
+      ]
+    },
+    {
+      "url": "https://www.chess.com/game/live/186473703836",
+      "time_control_source": "metadata",
+      "analysis_version": 2,
+      "reference": 73.9,
+      "baseline": 87.1,
+      "prediction": 84.1,
+      "scored_moves": 24,
+      "engine_names": [
+        "Stockfish 19"
+      ]
+    }
+  ],
+  "note": "Two latest saved complete v2 reports, not used in fitting or model selection; distinct from the 3 predetermined deep test games."
+}

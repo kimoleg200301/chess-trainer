@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import re
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from fastapi import HTTPException
@@ -109,6 +109,27 @@ def fetch_json(path: str) -> dict:
         raise HTTPException(502, "Chess.com вернул некорректный архив.") from None
 
 
+def chesscom_accuracies(value) -> dict[str, float] | None:
+    """Validate optional published reference scores without deriving missing ones."""
+    if not isinstance(value, dict):
+        return None
+    scores = {side: float(score) for side in ("white", "black")
+              if isinstance(score := value.get(side), (int, float)) and not isinstance(score, bool)
+              and 0 <= score <= 100 and math.isfinite(score)}
+    return scores or None
+
+
+def chesscom_game_url(value: str | None) -> str | None:
+    """Canonical identity for cosmetic differences in a public game URL."""
+    value = safe_game_url(value)
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if parsed.hostname not in {"chess.com", "www.chess.com"}:
+        return None
+    return urlunsplit(("https", "www.chess.com", parsed.path.rstrip("/"), "", ""))
+
+
 def chesscom_metadata(game: dict, item: dict, username: str) -> dict:
     """Attach public game metadata without fabricating unavailable observations."""
     username = username.lower()
@@ -117,7 +138,8 @@ def chesscom_metadata(game: dict, item: dict, username: str) -> dict:
                   game_url=safe_game_url(item.get("url", "")) or safe_game_url(game.get("game_url", "")),
                   end_time=item.get("end_time"),
                   time_class=item.get("time_class") if isinstance(item.get("time_class"), str) else None,
-                  rated=item.get("rated") if isinstance(item.get("rated"), bool) else None)
+                  rated=item.get("rated") if isinstance(item.get("rated"), bool) else None,
+                  chesscom_accuracies=chesscom_accuracies(item.get("accuracies")))
     for side in ("white", "black"):
         player = item.get(side) if isinstance(item.get(side), dict) else {}
         rating = player.get("rating")

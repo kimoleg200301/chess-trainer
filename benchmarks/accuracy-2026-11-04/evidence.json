@@ -1,0 +1,569 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-04",
+  "subject": "kimskiy1114",
+  "time_control": "300+5",
+  "public_archives": [
+    "https://api.chess.com/pub/player/kimskiy1114/games/2026/09",
+    "https://api.chess.com/pub/player/kimskiy1114/games/2026/10",
+    "https://api.chess.com/pub/player/kimskiy1114/games/2026/11"
+  ],
+  "eligible_reviewed_games": 123,
+  "selected_games": 60,
+  "selection_rule": "Before viewing residuals: evenly spaced indices within frozen73/25/25 chronological groups",
+  "selected_indices_within_original_73_25_25_groups": {
+    "train": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10,
+      12,
+      14,
+      16,
+      19,
+      21,
+      23,
+      25,
+      27,
+      29,
+      31,
+      33,
+      35,
+      37,
+      39,
+      41,
+      43,
+      45,
+      47,
+      49,
+      51,
+      53,
+      56,
+      58,
+      60,
+      62,
+      64,
+      66,
+      68,
+      70,
+      72
+    ],
+    "validation": [
+      0,
+      2,
+      4,
+      7,
+      9,
+      11,
+      13,
+      15,
+      17,
+      20,
+      22,
+      24
+    ],
+    "test": [
+      0,
+      2,
+      4,
+      7,
+      9,
+      11,
+      13,
+      15,
+      17,
+      20,
+      22,
+      24
+    ]
+  },
+  "split_counts": {
+    "train": 36,
+    "validation": 12,
+    "test": 12
+  },
+  "engine_configs": [
+    {
+      "digest": "b2ce07dfd0b414c849f2a280a2bfa7cf4ffb16ca8d205be7752320ef73e4b7e3",
+      "config": {
+        "stockfish_path": "/tmp/chess-stockfish19/stockfish-linux-x86-64-universal",
+        "stockfish_sha256": "0f83d24cc46d2c66c60f16001af5444873bc112b7d028594513426894c12da19",
+        "source_sha256": {
+          "backend/app/game_analysis_engine.py": "5a3fa843ba9c5ffd1cecdb75e53e11c034d2af6c1b5353d2d05e70139693374f",
+          "backend/app/generation.py": "4301355ee4775ee4d5a837458d55477a60b252d1ae719069410baddb71d83401"
+        },
+        "runner_sha256": "6ed62299e8aea359f19f0d21491715ce48665e5b579668055b5c82529032475d",
+        "python_chess_version": "1.11.2",
+        "engine_options": {
+          "Threads": 1,
+          "Hash": 64
+        },
+        "search": {
+          "nodes": 200000,
+          "max_time": 1.0,
+          "max_position_time": 15.0
+        },
+        "retry_unassessed": true,
+        "retry_search": {
+          "nodes": 4000000,
+          "max_time": 6.0,
+          "max_position_time": 45.0
+        },
+        "fresh_engine_per_ply": false,
+        "clear_hash_per_ply": true,
+        "method": {
+          "id": "tactics-lab-expected-result-v1",
+          "name": "Оценка тренажёра на основе Stockfish",
+          "description": "Собственная приближённая оценка, которая может отличаться от Chess.com.",
+          "expected_result": "1 / (1 + exp(-centipawns / 300)); мат за игрока — 1, против — 0",
+          "move_accuracy": "100 * exp(-6 * max(0, best_expected - played_expected))",
+          "game_accuracy": "Среднее по оценённым невынужденным ходам после полной проверки стороны",
+          "loss_thresholds": {
+            "excellent": 0.01,
+            "good": 0.03,
+            "inaccuracy": 0.07,
+            "mistake": 0.15
+          },
+          "special_moves": "Сильный и бриллиантовый — консервативные эвристические отметки, а не официальный вердикт Chess.com."
+        }
+      }
+    }
+  ],
+  "model_digest": "9ac6e0a07ea9d732f2f2cb54ff05b4cfeed2057a1bd6a93757a37a6b153e88d9",
+  "selection_digest": "78b13885f1a17d605f342e2826c377637b838e4aa1def8554ea509358dfe86dd",
+  "chosen": {
+    "family": "loss_exponential",
+    "parameters": [
+      6.555042015529255
+    ],
+    "named_parameters": {
+      "decay": 6.555042015529255
+    },
+    "formula": "100 * exp(-decay * mean(expected_loss))"
+  },
+  "prediction_rounding": "Round final game accuracy to one decimal, matching application output; fit objective uses unrounded scores.",
+  "selection_objective": "player-side training MAE; validation selection with simplicity preference",
+  "simplicity_margin_pp": 0.5,
+  "candidates": [
+    {
+      "family": "baseline",
+      "parameters": [],
+      "named_parameters": {},
+      "formula": "100 * mean(move_accuracy / 100)",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 12.18333333333333,
+          "median_absolute_error_pp": 10.895000000000003,
+          "p90_absolute_error_pp": 22.52,
+          "maximum_absolute_error_pp": 28.35,
+          "rmse_pp": 14.161447273809582,
+          "bias_pp": 12.103888888888886,
+          "within_5pp_fraction": 0.16666666666666666
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 12.041944444444445,
+          "median_absolute_error_pp": 12.265,
+          "p90_absolute_error_pp": 21.579999999999995,
+          "maximum_absolute_error_pp": 30.970000000000006,
+          "rmse_pp": 14.031494040194008,
+          "bias_pp": 11.964722222222223,
+          "within_5pp_fraction": 0.1388888888888889
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 12.112638888888888,
+          "median_absolute_error_pp": 11.575000000000003,
+          "p90_absolute_error_pp": 22.070000000000004,
+          "maximum_absolute_error_pp": 30.970000000000006,
+          "rmse_pp": 14.096620408610157,
+          "bias_pp": 12.034305555555555,
+          "within_5pp_fraction": 0.1527777777777778
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 11.294166666666664,
+          "median_absolute_error_pp": 12.385000000000002,
+          "p90_absolute_error_pp": 17.371000000000006,
+          "maximum_absolute_error_pp": 21.810000000000002,
+          "rmse_pp": 12.918808962129598,
+          "bias_pp": 11.279166666666669,
+          "within_5pp_fraction": 0.16666666666666666
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 11.005833333333333,
+          "median_absolute_error_pp": 13.165,
+          "p90_absolute_error_pp": 16.668,
+          "maximum_absolute_error_pp": 17.47,
+          "rmse_pp": 12.253969084885652,
+          "bias_pp": 11.005833333333333,
+          "within_5pp_fraction": 0.25
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 11.149999999999999,
+          "median_absolute_error_pp": 13.165,
+          "p90_absolute_error_pp": 17.289000000000005,
+          "maximum_absolute_error_pp": 21.810000000000002,
+          "rmse_pp": 12.590778040560744,
+          "bias_pp": 11.1425,
+          "within_5pp_fraction": 0.20833333333333334
+        }
+      }
+    },
+    {
+      "family": "mean_power",
+      "parameters": [
+        1.8336931289019742
+      ],
+      "named_parameters": {
+        "power": 1.8336931289019742
+      },
+      "formula": "100 * mean(move_accuracy / 100) ** power",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 4.133333333333332,
+          "median_absolute_error_pp": 4.120000000000008,
+          "p90_absolute_error_pp": 6.654999999999994,
+          "maximum_absolute_error_pp": 14.420000000000002,
+          "rmse_pp": 5.107737050571199,
+          "bias_pp": 0.7316666666666668,
+          "within_5pp_fraction": 0.6944444444444444
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 4.2797222222222215,
+          "median_absolute_error_pp": 2.9800000000000004,
+          "p90_absolute_error_pp": 8.569999999999993,
+          "maximum_absolute_error_pp": 18.369999999999997,
+          "rmse_pp": 5.729523201027384,
+          "bias_pp": 0.26749999999999985,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 4.206527777777777,
+          "median_absolute_error_pp": 3.8299999999999983,
+          "p90_absolute_error_pp": 7.9099999999999975,
+          "maximum_absolute_error_pp": 18.369999999999997,
+          "rmse_pp": 5.427541519366243,
+          "bias_pp": 0.4995833333333333,
+          "within_5pp_fraction": 0.6805555555555556
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 3.722499999999997,
+          "median_absolute_error_pp": 3.789999999999999,
+          "p90_absolute_error_pp": 7.196999999999993,
+          "maximum_absolute_error_pp": 7.810000000000002,
+          "rmse_pp": 4.467600959500896,
+          "bias_pp": -0.870833333333333,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 3.2308333333333334,
+          "median_absolute_error_pp": 2.3500000000000014,
+          "p90_absolute_error_pp": 7.547000000000007,
+          "maximum_absolute_error_pp": 8.539999999999992,
+          "rmse_pp": 4.234256133017935,
+          "bias_pp": -0.8941666666666664,
+          "within_5pp_fraction": 0.75
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 3.4766666666666652,
+          "median_absolute_error_pp": 3.1249999999999964,
+          "p90_absolute_error_pp": 7.6400000000000015,
+          "maximum_absolute_error_pp": 8.539999999999992,
+          "rmse_pp": 4.352492580885883,
+          "bias_pp": -0.8824999999999997,
+          "within_5pp_fraction": 0.7083333333333334
+        }
+      }
+    },
+    {
+      "family": "loss_exponential",
+      "parameters": [
+        6.555042015529255
+      ],
+      "named_parameters": {
+        "decay": 6.555042015529255
+      },
+      "formula": "100 * exp(-decay * mean(expected_loss))",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 4.367222222222221,
+          "median_absolute_error_pp": 3.275000000000002,
+          "p90_absolute_error_pp": 10.014999999999997,
+          "maximum_absolute_error_pp": 16.319999999999993,
+          "rmse_pp": 5.980308427572017,
+          "bias_pp": 0.5011111111111107,
+          "within_5pp_fraction": 0.6944444444444444
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 4.5363888888888875,
+          "median_absolute_error_pp": 3.509999999999998,
+          "p90_absolute_error_pp": 8.409999999999997,
+          "maximum_absolute_error_pp": 22.869999999999997,
+          "rmse_pp": 6.364553968835697,
+          "bias_pp": 1.7452777777777768,
+          "within_5pp_fraction": 0.7222222222222222
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 4.451805555555556,
+          "median_absolute_error_pp": 3.405000000000001,
+          "p90_absolute_error_pp": 9.264999999999993,
+          "maximum_absolute_error_pp": 22.869999999999997,
+          "rmse_pp": 6.175420476012588,
+          "bias_pp": 1.1231944444444437,
+          "within_5pp_fraction": 0.7083333333333334
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 3.572499999999998,
+          "median_absolute_error_pp": 3.644999999999996,
+          "p90_absolute_error_pp": 5.153999999999996,
+          "maximum_absolute_error_pp": 6.359999999999999,
+          "rmse_pp": 3.9436816555092244,
+          "bias_pp": 1.4458333333333304,
+          "within_5pp_fraction": 0.75
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 3.699166666666668,
+          "median_absolute_error_pp": 3.624999999999993,
+          "p90_absolute_error_pp": 6.937000000000007,
+          "maximum_absolute_error_pp": 8.090000000000003,
+          "rmse_pp": 4.499454596577977,
+          "bias_pp": 0.9058333333333337,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 3.635833333333333,
+          "median_absolute_error_pp": 3.644999999999996,
+          "p90_absolute_error_pp": 6.619000000000002,
+          "maximum_absolute_error_pp": 8.090000000000003,
+          "rmse_pp": 4.2307042360975,
+          "bias_pp": 1.1758333333333322,
+          "within_5pp_fraction": 0.7083333333333334
+        }
+      }
+    },
+    {
+      "family": "loss_power_exponential",
+      "parameters": [
+        6.390287039512755,
+        0.9861331492660605
+      ],
+      "named_parameters": {
+        "decay": 6.390287039512755,
+        "power": 0.9861331492660605
+      },
+      "formula": "100 * exp(-decay * mean(expected_loss) ** power)",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 4.357222222222223,
+          "median_absolute_error_pp": 3.0100000000000016,
+          "p90_absolute_error_pp": 9.765,
+          "maximum_absolute_error_pp": 16.019999999999996,
+          "rmse_pp": 5.97177900164134,
+          "bias_pp": 0.21777777777777846,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 4.50861111111111,
+          "median_absolute_error_pp": 3.4750000000000014,
+          "p90_absolute_error_pp": 8.110000000000003,
+          "maximum_absolute_error_pp": 22.470000000000006,
+          "rmse_pp": 6.258988425545386,
+          "bias_pp": 1.4202777777777778,
+          "within_5pp_fraction": 0.7222222222222222
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 4.432916666666667,
+          "median_absolute_error_pp": 3.3400000000000034,
+          "p90_absolute_error_pp": 8.974999999999996,
+          "maximum_absolute_error_pp": 22.470000000000006,
+          "rmse_pp": 6.117069582551581,
+          "bias_pp": 0.819027777777778,
+          "within_5pp_fraction": 0.6944444444444444
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 3.5474999999999977,
+          "median_absolute_error_pp": 3.4849999999999994,
+          "p90_absolute_error_pp": 5.50399999999999,
+          "maximum_absolute_error_pp": 5.960000000000008,
+          "rmse_pp": 3.8667115658312707,
+          "bias_pp": 1.137500000000001,
+          "within_5pp_fraction": 0.8333333333333334
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 3.579166666666667,
+          "median_absolute_error_pp": 3.625,
+          "p90_absolute_error_pp": 6.893,
+          "maximum_absolute_error_pp": 7.689999999999998,
+          "rmse_pp": 4.390701348683754,
+          "bias_pp": 0.5808333333333344,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 3.5633333333333326,
+          "median_absolute_error_pp": 3.509999999999998,
+          "p90_absolute_error_pp": 6.3800000000000034,
+          "maximum_absolute_error_pp": 7.689999999999998,
+          "rmse_pp": 4.137010796859651,
+          "bias_pp": 0.8591666666666677,
+          "within_5pp_fraction": 0.75
+        }
+      }
+    }
+  ],
+  "held_out_test": {
+    "schema_version": 1,
+    "kind": "frozen_model_evaluation",
+    "model_digest": "9ac6e0a07ea9d732f2f2cb54ff05b4cfeed2057a1bd6a93757a37a6b153e88d9",
+    "selection_digest": "78b13885f1a17d605f342e2826c377637b838e4aa1def8554ea509358dfe86dd",
+    "split": "test",
+    "evaluation_is_subset": false,
+    "frozen_split_game_count": 12,
+    "same_engine_profile_as_fitting": true,
+    "selected_games": 12,
+    "scored_games": 12,
+    "baseline": {
+      "player": {
+        "samples": 12,
+        "mae_pp": 6.8791666666666655,
+        "median_absolute_error_pp": 7.234999999999999,
+        "p90_absolute_error_pp": 14.149000000000001,
+        "maximum_absolute_error_pp": 15.629999999999995,
+        "rmse_pp": 8.166575679765254,
+        "bias_pp": 6.527499999999999,
+        "within_5pp_fraction": 0.4166666666666667
+      },
+      "opponent": {
+        "samples": 12,
+        "mae_pp": 10.214166666666664,
+        "median_absolute_error_pp": 8.755000000000003,
+        "p90_absolute_error_pp": 20.061999999999994,
+        "maximum_absolute_error_pp": 25.379999999999995,
+        "rmse_pp": 12.605051566733074,
+        "bias_pp": 9.734166666666662,
+        "within_5pp_fraction": 0.25
+      },
+      "both": {
+        "samples": 24,
+        "mae_pp": 8.546666666666665,
+        "median_absolute_error_pp": 7.399999999999999,
+        "p90_absolute_error_pp": 18.240999999999996,
+        "maximum_absolute_error_pp": 25.379999999999995,
+        "rmse_pp": 10.62027031984905,
+        "bias_pp": 8.13083333333333,
+        "within_5pp_fraction": 0.3333333333333333
+      }
+    },
+    "calibrated": {
+      "player": {
+        "samples": 12,
+        "mae_pp": 3.6041666666666665,
+        "median_absolute_error_pp": 3.174999999999997,
+        "p90_absolute_error_pp": 6.490000000000008,
+        "maximum_absolute_error_pp": 8.730000000000004,
+        "rmse_pp": 4.2838991195716405,
+        "bias_pp": 0.39416666666666583,
+        "within_5pp_fraction": 0.75
+      },
+      "opponent": {
+        "samples": 12,
+        "mae_pp": 3.8458333333333328,
+        "median_absolute_error_pp": 3.835000000000001,
+        "p90_absolute_error_pp": 6.404000000000004,
+        "maximum_absolute_error_pp": 9.159999999999997,
+        "rmse_pp": 4.58917113067999,
+        "bias_pp": 1.7091666666666647,
+        "within_5pp_fraction": 0.6666666666666666
+      },
+      "both": {
+        "samples": 24,
+        "mae_pp": 3.7249999999999996,
+        "median_absolute_error_pp": 3.3699999999999974,
+        "p90_absolute_error_pp": 6.573000000000008,
+        "maximum_absolute_error_pp": 9.159999999999997,
+        "rmse_pp": 4.43916001814157,
+        "bias_pp": 1.0516666666666652,
+        "within_5pp_fraction": 0.7083333333333334
+      }
+    },
+    "paired_improvement": {
+      "player": {
+        "games": 12,
+        "mae_reduction_pp": 3.2749999999999986,
+        "bootstrap_95pct_interval_pp": [
+          1.018333333333332,
+          5.569999999999999
+        ],
+        "bootstrap_repetitions": 5000,
+        "resampling_unit": "whole game"
+      },
+      "opponent": {
+        "games": 12,
+        "mae_reduction_pp": 6.368333333333332,
+        "bootstrap_95pct_interval_pp": [
+          3.179874999999995,
+          9.981874999999995
+        ],
+        "bootstrap_repetitions": 5000,
+        "resampling_unit": "whole game"
+      },
+      "both": {
+        "games": 12,
+        "mae_reduction_pp": 4.821666666666665,
+        "bootstrap_95pct_interval_pp": [
+          2.2705833333333287,
+          7.396749999999997
+        ],
+        "bootstrap_repetitions": 5000,
+        "resampling_unit": "whole game"
+      }
+    },
+    "exclusions": [],
+    "note": "Do not retune against this evaluation; new model selection requires a fresh hold-out."
+  },
+  "fit_exclusions": [],
+  "all_prediction_exclusions": [],
+  "predictions_csv_sha256": "2aae89a6ddafe4a682eb8c51e523be4aa1c2947984676894a44b743893b060c5",
+  "script_sha256": {
+    "calibrate_accuracy.py": "6ed62299e8aea359f19f0d21491715ce48665e5b579668055b5c82529032475d",
+    "fit_accuracy.py": "e6786f701d2671e521775c0262c023d97b2c8a361f4b0d44df8744e33e7df5db"
+  },
+  "limitations": [
+    "Only reviewed public games of this player at 300+5; not a random sample of all games or proof of generalization to other ratings/time controls.",
+    "Main experiment uses a 200000-node budget; default-depth transfer check is separate.",
+    "Game-level labels do not provide Chess.com move categories or Coach explanations.",
+    "All model parameters and families were frozen before reading held-out engine residuals."
+  ],
+  "calculation": "calibrated_game_accuracy = round(100 * exp(-decay * mean(expected_loss over all assessed nonforced moves)), 1); never publish a final estimate with missing/unassessed moves."
+}

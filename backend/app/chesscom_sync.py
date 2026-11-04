@@ -1,7 +1,6 @@
 """Durable recent-game synchronization, independent of reviews and coach data."""
 from datetime import timedelta
 import hashlib
-from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -10,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from .coach_sources import archive_months
-from .game_sources import chesscom_games
+from .game_sources import chesscom_game_url, chesscom_games
 from .models import ChessComSync, ImportedGame, ImportJob, User, now
 
 LOCK_NAMESPACE = 782110
@@ -99,19 +98,12 @@ def recent_games(username: str) -> list[tuple[str, list[dict]]]:
 
 
 def _game_url(value: str | None) -> str | None:
-    if not value:
-        return None
-    try:
-        parsed = urlsplit(value)
-    except ValueError:
-        return None
-    if parsed.scheme != "https" or parsed.hostname not in {"chess.com", "www.chess.com"}:
-        return None
-    return urlunsplit(("https", "www.chess.com", parsed.path.rstrip("/"), "", ""))
+    return chesscom_game_url(value)
 
 
 def _save_games(db: Session, user: User, username: str, batches: list[tuple[str, list[dict]]]) -> int:
-    from .imports_api import ANALYSIS_VERSION, fingerprint
+    from .imports_api import ANALYSIS_VERSION, fingerprint, refresh_chesscom_accuracies
+    references = refresh_chesscom_accuracies(db, user.id, [game for _, games in batches for game in games])
     existing = db.execute(select(ImportedGame.fingerprint, ImportedGame.data["game_url"].astext)
                           .join(ImportJob).where(ImportJob.user_id == user.id,
                                                  ImportJob.source == "chesscom")).all()
@@ -127,7 +119,7 @@ def _save_games(db: Session, user: User, username: str, batches: list[tuple[str,
             known.add(key)
             if url:
                 urls.add(url)
-            fresh.append((key, game))
+            fresh.append((key, {**game, "chesscom_accuracies": references.get(key)}))
         if not fresh:
             continue
         # Append to a dedicated monthly batch; periodic sync must not exhaust

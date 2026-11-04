@@ -1,0 +1,727 @@
+{
+  "schema_version": 1,
+  "kind": "frozen_accuracy_calibration",
+  "created_at": "2026-11-04T16:28:24.815143+00:00",
+  "player": "kimskiy1114",
+  "selection_digest": "78b13885f1a17d605f342e2826c377637b838e4aa1def8554ea509358dfe86dd",
+  "engine_configs": [
+    {
+      "digest": "b2ce07dfd0b414c849f2a280a2bfa7cf4ffb16ca8d205be7752320ef73e4b7e3",
+      "config": {
+        "stockfish_path": "/tmp/chess-stockfish19/stockfish-linux-x86-64-universal",
+        "stockfish_sha256": "0f83d24cc46d2c66c60f16001af5444873bc112b7d028594513426894c12da19",
+        "source_sha256": {
+          "backend/app/game_analysis_engine.py": "5a3fa843ba9c5ffd1cecdb75e53e11c034d2af6c1b5353d2d05e70139693374f",
+          "backend/app/generation.py": "4301355ee4775ee4d5a837458d55477a60b252d1ae719069410baddb71d83401"
+        },
+        "runner_sha256": "6ed62299e8aea359f19f0d21491715ce48665e5b579668055b5c82529032475d",
+        "python_chess_version": "1.11.2",
+        "engine_options": {
+          "Threads": 1,
+          "Hash": 64
+        },
+        "search": {
+          "nodes": 200000,
+          "max_time": 1.0,
+          "max_position_time": 15.0
+        },
+        "retry_unassessed": true,
+        "retry_search": {
+          "nodes": 4000000,
+          "max_time": 6.0,
+          "max_position_time": 45.0
+        },
+        "fresh_engine_per_ply": false,
+        "clear_hash_per_ply": true,
+        "method": {
+          "id": "tactics-lab-expected-result-v1",
+          "name": "Оценка тренажёра на основе Stockfish",
+          "description": "Собственная приближённая оценка, которая может отличаться от Chess.com.",
+          "expected_result": "1 / (1 + exp(-centipawns / 300)); мат за игрока — 1, против — 0",
+          "move_accuracy": "100 * exp(-6 * max(0, best_expected - played_expected))",
+          "game_accuracy": "Среднее по оценённым невынужденным ходам после полной проверки стороны",
+          "loss_thresholds": {
+            "excellent": 0.01,
+            "good": 0.03,
+            "inaccuracy": 0.07,
+            "mistake": 0.15
+          },
+          "special_moves": "Сильный и бриллиантовый — консервативные эвристические отметки, а не официальный вердикт Chess.com."
+        }
+      }
+    }
+  ],
+  "split_game_ids": {
+    "train": [
+      "e8eeb696fae5485700a4fe84",
+      "e2d54188e85caf21aee84258",
+      "c12f981f643ed58b45233508",
+      "8b48eff993c0facd3999ead8",
+      "05002741b00eaea6ff8646fb",
+      "b4c7321b9fa585a2cdb235d5",
+      "9a9f286059ea07a4cc223ef8",
+      "696b6db14d34e725dc039ffd",
+      "0733e21d0bb208ed682fde85",
+      "2e4e041491884436942d3571",
+      "15282ce77e06815aebfff775",
+      "513e948227d80abbb43f9be6",
+      "e8d70a8f1842b8569389d423",
+      "6621b83bf4e66ec611b95d34",
+      "a118df73ba91d4f39a13e766",
+      "ee8fe4ab1cda12e595ebf354",
+      "28251682f8290c3bf9f15ed4",
+      "1ff0c54c876fc6fa1774898a",
+      "9718e68263f6d3c6048ade01",
+      "a08d352461eb92fde2b9997b",
+      "53f2eb9aea15e6bed2570a99",
+      "e6ad7f47872fd7294b97c342",
+      "014feca65ba84397ff3794f6",
+      "744632a55aac645bc5702c80",
+      "535b53e2fcb8ffe241702e1c",
+      "230f49fe960b0f92b197a78b",
+      "cfd05c176cd54b3b0280cdd4",
+      "b8c1235aded32e5bcfa1ef13",
+      "ef32a97d4aa524784d42ca90",
+      "170ea97164fcb236f6bb3c79",
+      "aa8d11fd7776c4e84cf6e0cf",
+      "9e7c01b379a90c1d39826978",
+      "2b1997459e383e97ec67835c",
+      "958fa144c5dbbdd6977445b3",
+      "77c97d126e5da388db674c12",
+      "bec2e75563ddab552e287118"
+    ],
+    "validation": [
+      "c2a4289fce13f94da72958a6",
+      "d6669c8c48ce315e3ec0f40e",
+      "ed4ecbdcff97bd9f1d5dafb1",
+      "3b702d87f2cab7a60655d452",
+      "9043ca874ea6719ba725c5a9",
+      "03f119674ed094e57b4bbbbc",
+      "410e5f99455c2cf57e1f80d3",
+      "d1a47b2da18fbc890bccc79f",
+      "5c4207c09d2c22b305f56551",
+      "70bd68f5c00a725dc9d68210",
+      "d55427cefcd6dca26dce99f2",
+      "ced4c12d27ef7928bd7c78ba"
+    ],
+    "test": [
+      "746bc386fde46fd82b539ce9",
+      "bc94303be2e52e952a1a51e7",
+      "20ed14c2b785848ed9780dd3",
+      "35dbd2f187e4f3dcd04a0dd0",
+      "977acc0ee7d4c6c61b2b9b3c",
+      "bdd220401ff43b6ed081c474",
+      "0a84e44a1faf0df6c15055f4",
+      "4c39cb0bf9fc81239fc48051",
+      "d5215727bf2b7a01646f3607",
+      "8049fc6c4d08e1d3740d4d15",
+      "680e6c7baa3f717854e9816f",
+      "6a46b1605114e35302b9d10b"
+    ]
+  },
+  "selection_signatures": {
+    "e8eeb696fae5485700a4fe84": {
+      "source_digest": "28ef49490413a49b12125958f59b8e58842e089a271593b87eda6505806e6ad8",
+      "split": "train"
+    },
+    "e2d54188e85caf21aee84258": {
+      "source_digest": "b4dd390839801a8db88c7f64175ec9ef17276907c84a32d8f1a9db428ecab230",
+      "split": "train"
+    },
+    "c12f981f643ed58b45233508": {
+      "source_digest": "a7567490e659f6eb89ad541074229780f5518a0084c084e810010385060b76b9",
+      "split": "train"
+    },
+    "8b48eff993c0facd3999ead8": {
+      "source_digest": "55e1227d1a752757cbdd1ac1df83962bd7d71906ce2cf6a0b6c555ace0bb624a",
+      "split": "train"
+    },
+    "05002741b00eaea6ff8646fb": {
+      "source_digest": "4d00988b6c681ec1703de198741f094db87789784e819c48eaab45d51b607369",
+      "split": "train"
+    },
+    "b4c7321b9fa585a2cdb235d5": {
+      "source_digest": "48cdc68b1b05c6660dc337455b1b0599b8e833d5869c6cbfc942b7af6ab64137",
+      "split": "train"
+    },
+    "9a9f286059ea07a4cc223ef8": {
+      "source_digest": "480fbd05daff6f0d1bc4b9f35dbc2cec4d5fb0d3f380a7e6e6e112ffa3baf685",
+      "split": "train"
+    },
+    "696b6db14d34e725dc039ffd": {
+      "source_digest": "982a53f3321e05da5cfd3954cd1b2b17937004316b28e8ad7c0b067edbfaecd8",
+      "split": "train"
+    },
+    "0733e21d0bb208ed682fde85": {
+      "source_digest": "2dd72e0bfad7aa1cca431701e9e08e50f93f43afd0019c2482d89184f217091c",
+      "split": "train"
+    },
+    "2e4e041491884436942d3571": {
+      "source_digest": "df8ae5c0d0accb24d135328d7b24ac52d4813a8ab96fce7956984f11748337ca",
+      "split": "train"
+    },
+    "15282ce77e06815aebfff775": {
+      "source_digest": "020628992400d76e6200038a8d750215d1ee47d318491b35f5e46821ddc4c61a",
+      "split": "train"
+    },
+    "513e948227d80abbb43f9be6": {
+      "source_digest": "f63490a9ba2d647344d57278e8c23f5f7024a2a589414683b67c8aa58ce389db",
+      "split": "train"
+    },
+    "e8d70a8f1842b8569389d423": {
+      "source_digest": "66a36311a368a4758d4f77c5d78dd1a686d2f2c6d5a61b18f2aa759256366eed",
+      "split": "train"
+    },
+    "6621b83bf4e66ec611b95d34": {
+      "source_digest": "c75dded74f6d4e6d4fdb3e77f5013b10acc60b38d9382176f6c38392d9effc74",
+      "split": "train"
+    },
+    "a118df73ba91d4f39a13e766": {
+      "source_digest": "775aad23be5657e370898b60b36a59e4a0ec2fd19f58907a8a600b220f67444a",
+      "split": "train"
+    },
+    "ee8fe4ab1cda12e595ebf354": {
+      "source_digest": "a50bb52f40fd56f2d846971dfd251d23663fd2a32100e07806c4348606aee831",
+      "split": "train"
+    },
+    "28251682f8290c3bf9f15ed4": {
+      "source_digest": "5e7fb13110c64ac3ec713a54051073273937321e1f9eb1bfba0bee6b7522e578",
+      "split": "train"
+    },
+    "1ff0c54c876fc6fa1774898a": {
+      "source_digest": "3ca303d7a5ce6edb6d388a6a08bf2f090fe685e23fe9d0aebfd8d8153671eb98",
+      "split": "train"
+    },
+    "9718e68263f6d3c6048ade01": {
+      "source_digest": "afc37393a30f136d430849714d89518861ae65c2335da4499dcc695d4da9f253",
+      "split": "train"
+    },
+    "a08d352461eb92fde2b9997b": {
+      "source_digest": "f58dcd08e7f53ae76bc96d91e104b2294bab22c264cddf7db4d95aac5f04b74a",
+      "split": "train"
+    },
+    "53f2eb9aea15e6bed2570a99": {
+      "source_digest": "cb2a1e833f117988fa397dae53222d7fd4ff23c49db2a0822a94713c80845487",
+      "split": "train"
+    },
+    "e6ad7f47872fd7294b97c342": {
+      "source_digest": "1b3392090dd501fa0ea2114822b89f438d0b1db7a962bfff177e209426f45f4a",
+      "split": "train"
+    },
+    "014feca65ba84397ff3794f6": {
+      "source_digest": "c848b6ce805ba1c343628f54a53b1e328c2ab10b805ee4ba73981192158f85ef",
+      "split": "train"
+    },
+    "744632a55aac645bc5702c80": {
+      "source_digest": "45ca48a949a1dfcbae44a8e6bbddffad6488583d17fb953fa1104ffba355dc29",
+      "split": "train"
+    },
+    "535b53e2fcb8ffe241702e1c": {
+      "source_digest": "aaaf4b1e0a6d087c9b6990d1d7025d5399632d1f59057170e01cd2f0e4a8ad64",
+      "split": "train"
+    },
+    "230f49fe960b0f92b197a78b": {
+      "source_digest": "00d8de6cde299ef4887cf2cb6b46cb5e343221c285b966b8f9e0ec712e843fb6",
+      "split": "train"
+    },
+    "cfd05c176cd54b3b0280cdd4": {
+      "source_digest": "fc3ea84f9c841228ff5ac194a2378dd9bd007a951897e83c0eacc3c5a1c970bf",
+      "split": "train"
+    },
+    "b8c1235aded32e5bcfa1ef13": {
+      "source_digest": "94fe49c674cf27be843241598b9b6f1fbf89288e49fb5a4de92a33864665d3e1",
+      "split": "train"
+    },
+    "ef32a97d4aa524784d42ca90": {
+      "source_digest": "ffae22d7efe42a06b6b5e4ab5434aded9823e3dae4476e3c7dd7b41fcbd4651c",
+      "split": "train"
+    },
+    "170ea97164fcb236f6bb3c79": {
+      "source_digest": "07ae52bd6ec3b6a2faecd22b6507c0bbb420838bf41b3a17a2c6859281230440",
+      "split": "train"
+    },
+    "aa8d11fd7776c4e84cf6e0cf": {
+      "source_digest": "b0866f9f6b61c390114fa242178cd636b12c3c32587e7818fb4ab1df225440c5",
+      "split": "train"
+    },
+    "9e7c01b379a90c1d39826978": {
+      "source_digest": "d251aa45b84d8f57873cfb4aa9cd4947b9355ea1f83ad20f8bc3812a2ea26a64",
+      "split": "train"
+    },
+    "2b1997459e383e97ec67835c": {
+      "source_digest": "a1d59de6a9dcb2fdfbd11b46609f3c198cb00d0b7d274a147e8d3ecb41de01ea",
+      "split": "train"
+    },
+    "958fa144c5dbbdd6977445b3": {
+      "source_digest": "debe6bb4ff4d80dc599dadcc73ae16d58ffb71e4e33752abc2e3391fef86904f",
+      "split": "train"
+    },
+    "77c97d126e5da388db674c12": {
+      "source_digest": "921fbb84b649594fa2dbd5f87299b8d4bb94df52b3b74b07a096e2ade7d75804",
+      "split": "train"
+    },
+    "bec2e75563ddab552e287118": {
+      "source_digest": "d8502df10e70647a9eb474a23b1e38b57670f254c7201df57f8c0e8c0d9fd0a6",
+      "split": "train"
+    },
+    "c2a4289fce13f94da72958a6": {
+      "source_digest": "cf2a94ed8ec73ecff183cae30e8318c896fd7f2337201b9620cdcc7f661486f7",
+      "split": "validation"
+    },
+    "d6669c8c48ce315e3ec0f40e": {
+      "source_digest": "bba779ff92be54bc0798986f2037d564406dac713a17cb67df495502400a98f4",
+      "split": "validation"
+    },
+    "ed4ecbdcff97bd9f1d5dafb1": {
+      "source_digest": "18ed965704580d1506babb6fe5bab8346816006da6fbec6d91097ad7858643d4",
+      "split": "validation"
+    },
+    "3b702d87f2cab7a60655d452": {
+      "source_digest": "33eca72c73636f66716d835a9c2b9b9dac952bd79d65a9b438b9537fe9df5596",
+      "split": "validation"
+    },
+    "9043ca874ea6719ba725c5a9": {
+      "source_digest": "bcf384dd60371164080a8eaaa4df18fae83cdf3e1942c33a644abea238daed69",
+      "split": "validation"
+    },
+    "03f119674ed094e57b4bbbbc": {
+      "source_digest": "990ac56972ec8bc52b81d2efc671e046efa9b675f15fa95475aebbc5a380e716",
+      "split": "validation"
+    },
+    "410e5f99455c2cf57e1f80d3": {
+      "source_digest": "08f8071a46fe17c0fc3a49a07e329b89debf9c3ddc5cacffd03515b717aa8b5d",
+      "split": "validation"
+    },
+    "d1a47b2da18fbc890bccc79f": {
+      "source_digest": "f0398344707de0eacfcfa85608804e1efb72a0179bd707c6104955379e2e4e44",
+      "split": "validation"
+    },
+    "5c4207c09d2c22b305f56551": {
+      "source_digest": "46a0d591d0134fd19330bd02f64baf864cca55b5c3a7a48f57f4ff93d9f4c39c",
+      "split": "validation"
+    },
+    "70bd68f5c00a725dc9d68210": {
+      "source_digest": "40a220efa1966e40b5bee2f9dd128cc15a2373b1a26eda1311a0c2b214189159",
+      "split": "validation"
+    },
+    "d55427cefcd6dca26dce99f2": {
+      "source_digest": "a5353b285e34bfe0a2494f3b46c1cfdf1003b192fd037a1790e015c392153ce2",
+      "split": "validation"
+    },
+    "ced4c12d27ef7928bd7c78ba": {
+      "source_digest": "a9dd1e4d90fd383bb2989a4f787f9cfb57d511d07082fa6c71f99e240d13053c",
+      "split": "validation"
+    },
+    "746bc386fde46fd82b539ce9": {
+      "source_digest": "b3e074ef16ed2e6504783c5cc0119059001817cfa17add1878ba2aa6ad184cc5",
+      "split": "test"
+    },
+    "bc94303be2e52e952a1a51e7": {
+      "source_digest": "0785f51e0f7e6593b6551641852c443e49047390b15d154c878ee90381cfdbf7",
+      "split": "test"
+    },
+    "20ed14c2b785848ed9780dd3": {
+      "source_digest": "5d690a0cbecb84b38ce5dd32b8fca47aee4f9715254e0e93c064a2e0ce8b3d4c",
+      "split": "test"
+    },
+    "35dbd2f187e4f3dcd04a0dd0": {
+      "source_digest": "86a83a8cd29ee9dfd3bf1b5cf018cae522efa15d9fa3d7a46d23fe6c9aeb8124",
+      "split": "test"
+    },
+    "977acc0ee7d4c6c61b2b9b3c": {
+      "source_digest": "1a75cdf578ecdd00ebcb3c4d2d1f1fed43009049a74217d45d581396588296be",
+      "split": "test"
+    },
+    "bdd220401ff43b6ed081c474": {
+      "source_digest": "e71f8e08100b5c4deae30cb6aaa65bebb6e5445c9c92636bfce5b04a3cfa9cfb",
+      "split": "test"
+    },
+    "0a84e44a1faf0df6c15055f4": {
+      "source_digest": "7d25f3d9282fe482070c5be0c2a87dda94af95a1b1cae0fecfeea29048a6624e",
+      "split": "test"
+    },
+    "4c39cb0bf9fc81239fc48051": {
+      "source_digest": "12ba49b1a85f7e40310419599d192a7015b76b85decd395d84dbe4e3cedb307a",
+      "split": "test"
+    },
+    "d5215727bf2b7a01646f3607": {
+      "source_digest": "7fabc92eee34973077c02a3da2c248de3d7d0cc932ac73f9dd5d11c9e33ee6ce",
+      "split": "test"
+    },
+    "8049fc6c4d08e1d3740d4d15": {
+      "source_digest": "9705f101faf4f60d61de518d59b73ef738a8869e31dfbbb6593484f33d5ad5b8",
+      "split": "test"
+    },
+    "680e6c7baa3f717854e9816f": {
+      "source_digest": "1f94fc04369b5a53b01b97fcb9d43e9c14c91197b714f8646e0475ba188ecb5b",
+      "split": "test"
+    },
+    "6a46b1605114e35302b9d10b": {
+      "source_digest": "0a2e5a7bcb36a27658898e22198126af3c1705bfe5b92c1796935a656542d56a",
+      "split": "test"
+    }
+  },
+  "prediction_rounding": "Round final game accuracy to one decimal, matching application output; fit objective uses unrounded scores.",
+  "training_record_digests": {
+    "e8eeb696fae5485700a4fe84": "58de7f6c6bca75097e5eee4048c55867d32dc50e1daa7d600070f3de03c98c07",
+    "e2d54188e85caf21aee84258": "174882adddc245ee386f62ad81c6ba26b4fe32a62685b694d0a4e3ff3cecbf1a",
+    "c12f981f643ed58b45233508": "31c7c8c76e733c5a11d6035e85f6eed561c8914d0ee32f0f80bdbdd2016e932d",
+    "8b48eff993c0facd3999ead8": "18575b1849225eb81c76d975b59cb73c09cfb23e6f655216ee30341b7fe475af",
+    "05002741b00eaea6ff8646fb": "cfcbdd2981f5f6abbaab38fcf3bad773fc947f959be6bb398ef18a6a747b7a25",
+    "b4c7321b9fa585a2cdb235d5": "27c5b20af334f34d2a7f1a9ff37f713236f93f4cf391bef7c4571ee5257a4302",
+    "9a9f286059ea07a4cc223ef8": "e784357804d29d412b817c8620b536c10515ef3d72f8b77902abe2e3aaf7270a",
+    "696b6db14d34e725dc039ffd": "18d563f4e6e60aa86df40d2c7c557200422b85cf675fabb9aa032fbc4527ae33",
+    "0733e21d0bb208ed682fde85": "bea7ebfbaa61b4451083b6b0634f2e541e29664e787eef16d40deea869ce0c5b",
+    "2e4e041491884436942d3571": "f576ecac50d4c0b9c6cf3f5416bc261c143096837a4cdecc0533d3fe5ba1c64e",
+    "15282ce77e06815aebfff775": "a695b0bf46a626fa4a623135840f32def75aa7f2d9d4847d2d7c79393348bc42",
+    "513e948227d80abbb43f9be6": "95f1eb73a398494bdd162963bcd462d364b4c4efee413201a784155a9844a373",
+    "e8d70a8f1842b8569389d423": "8042b0ce5e934f548415e2a6f4494c518dc4b124240d279dc7f68f66747c10d9",
+    "6621b83bf4e66ec611b95d34": "94949a76dbdef4a2da8207e6c2434b3a6c87d33da866abbd129e1581ce91d26e",
+    "a118df73ba91d4f39a13e766": "d9229472a8cf0b9d154ed386b2d64d80a43bae0c54d496fa7b4844b524090385",
+    "ee8fe4ab1cda12e595ebf354": "4bbc5fd2f538d05fd4ba737b91970c3fb89b8571fe3176ce13fe8e48421b31ca",
+    "28251682f8290c3bf9f15ed4": "51d1e7927819f67578390299784fc63985de37e0adb14121aaa05903e4dc0e9f",
+    "1ff0c54c876fc6fa1774898a": "dde9aa8e87ef1a79a902863e2f803f80449ce17a5a8f8aadb3f27ddd45e209bb",
+    "9718e68263f6d3c6048ade01": "14115221f3c510dee59483bd73163f1944a2afd9088494062602cd8dc74d76ea",
+    "a08d352461eb92fde2b9997b": "6fa3365798bd0bb0fec36186900e04423f60ffa5aaa38ee292744eecc8665ee5",
+    "53f2eb9aea15e6bed2570a99": "7ede32c68754054b87f733f9c1c6b7ac71c4373866556b33238793c4e1be2e17",
+    "e6ad7f47872fd7294b97c342": "4364af684647c96aa65551b24077b7d5d3798c99c18cae8b4af056189462b840",
+    "014feca65ba84397ff3794f6": "3510262fc23dccdc971cd894b6bd9f4c1988c428e396e2b618477c13e498570c",
+    "744632a55aac645bc5702c80": "be52bb43a97561e82dc35808f93cfee06a7d2d7a935e308dc747951b60488956",
+    "535b53e2fcb8ffe241702e1c": "36de094f6013b5780105962542095feba4b6ccea8f6eea29d2e5e79c7089498f",
+    "230f49fe960b0f92b197a78b": "9edb48b2c7258397a6c237b5d01138ba284383f50cdf314febea1ebdcee5379f",
+    "cfd05c176cd54b3b0280cdd4": "82f3852d288a008cecced7bc6d3c504eec89b05101a60a6acfba786241b751a1",
+    "b8c1235aded32e5bcfa1ef13": "fbeca66d11261e0823d05f640e7ddc7b0918b231c8591bc54e4d3f858b36e6f3",
+    "ef32a97d4aa524784d42ca90": "08637ae1d3b57f0271fc3ad31e25cbcc52bb9fbd45c4bfc5cd1ec14b5261ad34",
+    "170ea97164fcb236f6bb3c79": "934b28d1a143970ce4df4005cbc15699314952f3d57e0561a8a50460e913cce1",
+    "aa8d11fd7776c4e84cf6e0cf": "7437305e874806e007c9a58c69a7a7178601c600c84cdfe40b65af1bff0cba53",
+    "9e7c01b379a90c1d39826978": "f043824894011b579ee934f3c846f4bbf47ed7ea23466049975762c1ea26dc40",
+    "2b1997459e383e97ec67835c": "1446cd3ea7729203781c752453c4789577cb429cfd9dce073d107f1d56a1e7c9",
+    "958fa144c5dbbdd6977445b3": "ba6eba057422b1dcae644a47eccab93f0fd98cedb44049e5ed1ab37105dbc25e",
+    "77c97d126e5da388db674c12": "f8087edcb96f99fb1a100b35a5502517890ec7d91f90e5110604ebcbac9513b5",
+    "bec2e75563ddab552e287118": "427aa31bf50d31212937a1073e09e142b2b716608d64825170e229a3e5664207",
+    "c2a4289fce13f94da72958a6": "07d007b04b22ad4691ab4aacf4f2c62c973ada379ba422d47e91a7d523a34afd",
+    "d6669c8c48ce315e3ec0f40e": "0ec5daf67e5c8abf5700fddded9a4e9bc2abc9e9ec76d86c8311f4804c2c12ee",
+    "ed4ecbdcff97bd9f1d5dafb1": "a466a17a7a742841ef2dee71cd034b9ccc85d9d2fbf2204a4c6adea11c6000c9",
+    "3b702d87f2cab7a60655d452": "15d51e1d84922b75856c01270a088054bc56fa962dc7cdac87e36fad9606472f",
+    "9043ca874ea6719ba725c5a9": "c420cccca5e65469f548321537de3a8f38766cd9e6aede1f64e3485aff93e4e8",
+    "03f119674ed094e57b4bbbbc": "53dbfe849bfa22d14d16e840526c6a156360f220547462f5383d04415ef36ca6",
+    "410e5f99455c2cf57e1f80d3": "e01ae46890dcd940e9078d54ad158f9bd9ec4c91e3ae9c92caf52e79a80f8ab8",
+    "d1a47b2da18fbc890bccc79f": "0bbb97cff3e9969edc9010c4e4aa931d2b883dd1ff9ab37aaaec61a2f3dd0b29",
+    "5c4207c09d2c22b305f56551": "9ad944a01307468e92370af4c44066393ab952fa6a14edeff5864d46fa293e6b",
+    "70bd68f5c00a725dc9d68210": "659c0f08c8e08981224c424e9be476ff9adbee11034633001c9677131b0ed5f1",
+    "d55427cefcd6dca26dce99f2": "18d141fbf69845b07146c2537f927b70a8dc48c423216e3512eb6e300047714a",
+    "ced4c12d27ef7928bd7c78ba": "93de08ed276991ad3f93b2fcd810222568e97a7c828834dbd47ea8dc5736f65a"
+  },
+  "objective": "player-side training MAE; validation selection with simplicity preference",
+  "simplicity_margin_pp": 0.5,
+  "chosen": {
+    "family": "loss_exponential",
+    "parameters": [
+      6.555042015529255
+    ],
+    "named_parameters": {
+      "decay": 6.555042015529255
+    },
+    "formula": "100 * exp(-decay * mean(expected_loss))"
+  },
+  "candidates": [
+    {
+      "family": "baseline",
+      "parameters": [],
+      "named_parameters": {},
+      "formula": "100 * mean(move_accuracy / 100)",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 12.18333333333333,
+          "median_absolute_error_pp": 10.895000000000003,
+          "p90_absolute_error_pp": 22.52,
+          "maximum_absolute_error_pp": 28.35,
+          "rmse_pp": 14.161447273809582,
+          "bias_pp": 12.103888888888886,
+          "within_5pp_fraction": 0.16666666666666666
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 12.041944444444445,
+          "median_absolute_error_pp": 12.265,
+          "p90_absolute_error_pp": 21.579999999999995,
+          "maximum_absolute_error_pp": 30.970000000000006,
+          "rmse_pp": 14.031494040194008,
+          "bias_pp": 11.964722222222223,
+          "within_5pp_fraction": 0.1388888888888889
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 12.112638888888888,
+          "median_absolute_error_pp": 11.575000000000003,
+          "p90_absolute_error_pp": 22.070000000000004,
+          "maximum_absolute_error_pp": 30.970000000000006,
+          "rmse_pp": 14.096620408610157,
+          "bias_pp": 12.034305555555555,
+          "within_5pp_fraction": 0.1527777777777778
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 11.294166666666664,
+          "median_absolute_error_pp": 12.385000000000002,
+          "p90_absolute_error_pp": 17.371000000000006,
+          "maximum_absolute_error_pp": 21.810000000000002,
+          "rmse_pp": 12.918808962129598,
+          "bias_pp": 11.279166666666669,
+          "within_5pp_fraction": 0.16666666666666666
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 11.005833333333333,
+          "median_absolute_error_pp": 13.165,
+          "p90_absolute_error_pp": 16.668,
+          "maximum_absolute_error_pp": 17.47,
+          "rmse_pp": 12.253969084885652,
+          "bias_pp": 11.005833333333333,
+          "within_5pp_fraction": 0.25
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 11.149999999999999,
+          "median_absolute_error_pp": 13.165,
+          "p90_absolute_error_pp": 17.289000000000005,
+          "maximum_absolute_error_pp": 21.810000000000002,
+          "rmse_pp": 12.590778040560744,
+          "bias_pp": 11.1425,
+          "within_5pp_fraction": 0.20833333333333334
+        }
+      }
+    },
+    {
+      "family": "mean_power",
+      "parameters": [
+        1.8336931289019742
+      ],
+      "named_parameters": {
+        "power": 1.8336931289019742
+      },
+      "formula": "100 * mean(move_accuracy / 100) ** power",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 4.133333333333332,
+          "median_absolute_error_pp": 4.120000000000008,
+          "p90_absolute_error_pp": 6.654999999999994,
+          "maximum_absolute_error_pp": 14.420000000000002,
+          "rmse_pp": 5.107737050571199,
+          "bias_pp": 0.7316666666666668,
+          "within_5pp_fraction": 0.6944444444444444
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 4.2797222222222215,
+          "median_absolute_error_pp": 2.9800000000000004,
+          "p90_absolute_error_pp": 8.569999999999993,
+          "maximum_absolute_error_pp": 18.369999999999997,
+          "rmse_pp": 5.729523201027384,
+          "bias_pp": 0.26749999999999985,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 4.206527777777777,
+          "median_absolute_error_pp": 3.8299999999999983,
+          "p90_absolute_error_pp": 7.9099999999999975,
+          "maximum_absolute_error_pp": 18.369999999999997,
+          "rmse_pp": 5.427541519366243,
+          "bias_pp": 0.4995833333333333,
+          "within_5pp_fraction": 0.6805555555555556
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 3.722499999999997,
+          "median_absolute_error_pp": 3.789999999999999,
+          "p90_absolute_error_pp": 7.196999999999993,
+          "maximum_absolute_error_pp": 7.810000000000002,
+          "rmse_pp": 4.467600959500896,
+          "bias_pp": -0.870833333333333,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 3.2308333333333334,
+          "median_absolute_error_pp": 2.3500000000000014,
+          "p90_absolute_error_pp": 7.547000000000007,
+          "maximum_absolute_error_pp": 8.539999999999992,
+          "rmse_pp": 4.234256133017935,
+          "bias_pp": -0.8941666666666664,
+          "within_5pp_fraction": 0.75
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 3.4766666666666652,
+          "median_absolute_error_pp": 3.1249999999999964,
+          "p90_absolute_error_pp": 7.6400000000000015,
+          "maximum_absolute_error_pp": 8.539999999999992,
+          "rmse_pp": 4.352492580885883,
+          "bias_pp": -0.8824999999999997,
+          "within_5pp_fraction": 0.7083333333333334
+        }
+      }
+    },
+    {
+      "family": "loss_exponential",
+      "parameters": [
+        6.555042015529255
+      ],
+      "named_parameters": {
+        "decay": 6.555042015529255
+      },
+      "formula": "100 * exp(-decay * mean(expected_loss))",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 4.367222222222221,
+          "median_absolute_error_pp": 3.275000000000002,
+          "p90_absolute_error_pp": 10.014999999999997,
+          "maximum_absolute_error_pp": 16.319999999999993,
+          "rmse_pp": 5.980308427572017,
+          "bias_pp": 0.5011111111111107,
+          "within_5pp_fraction": 0.6944444444444444
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 4.5363888888888875,
+          "median_absolute_error_pp": 3.509999999999998,
+          "p90_absolute_error_pp": 8.409999999999997,
+          "maximum_absolute_error_pp": 22.869999999999997,
+          "rmse_pp": 6.364553968835697,
+          "bias_pp": 1.7452777777777768,
+          "within_5pp_fraction": 0.7222222222222222
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 4.451805555555556,
+          "median_absolute_error_pp": 3.405000000000001,
+          "p90_absolute_error_pp": 9.264999999999993,
+          "maximum_absolute_error_pp": 22.869999999999997,
+          "rmse_pp": 6.175420476012588,
+          "bias_pp": 1.1231944444444437,
+          "within_5pp_fraction": 0.7083333333333334
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 3.572499999999998,
+          "median_absolute_error_pp": 3.644999999999996,
+          "p90_absolute_error_pp": 5.153999999999996,
+          "maximum_absolute_error_pp": 6.359999999999999,
+          "rmse_pp": 3.9436816555092244,
+          "bias_pp": 1.4458333333333304,
+          "within_5pp_fraction": 0.75
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 3.699166666666668,
+          "median_absolute_error_pp": 3.624999999999993,
+          "p90_absolute_error_pp": 6.937000000000007,
+          "maximum_absolute_error_pp": 8.090000000000003,
+          "rmse_pp": 4.499454596577977,
+          "bias_pp": 0.9058333333333337,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 3.635833333333333,
+          "median_absolute_error_pp": 3.644999999999996,
+          "p90_absolute_error_pp": 6.619000000000002,
+          "maximum_absolute_error_pp": 8.090000000000003,
+          "rmse_pp": 4.2307042360975,
+          "bias_pp": 1.1758333333333322,
+          "within_5pp_fraction": 0.7083333333333334
+        }
+      }
+    },
+    {
+      "family": "loss_power_exponential",
+      "parameters": [
+        6.390287039512755,
+        0.9861331492660605
+      ],
+      "named_parameters": {
+        "decay": 6.390287039512755,
+        "power": 0.9861331492660605
+      },
+      "formula": "100 * exp(-decay * mean(expected_loss) ** power)",
+      "training": {
+        "player": {
+          "samples": 36,
+          "mae_pp": 4.357222222222223,
+          "median_absolute_error_pp": 3.0100000000000016,
+          "p90_absolute_error_pp": 9.765,
+          "maximum_absolute_error_pp": 16.019999999999996,
+          "rmse_pp": 5.97177900164134,
+          "bias_pp": 0.21777777777777846,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "opponent": {
+          "samples": 36,
+          "mae_pp": 4.50861111111111,
+          "median_absolute_error_pp": 3.4750000000000014,
+          "p90_absolute_error_pp": 8.110000000000003,
+          "maximum_absolute_error_pp": 22.470000000000006,
+          "rmse_pp": 6.258988425545386,
+          "bias_pp": 1.4202777777777778,
+          "within_5pp_fraction": 0.7222222222222222
+        },
+        "both": {
+          "samples": 72,
+          "mae_pp": 4.432916666666667,
+          "median_absolute_error_pp": 3.3400000000000034,
+          "p90_absolute_error_pp": 8.974999999999996,
+          "maximum_absolute_error_pp": 22.470000000000006,
+          "rmse_pp": 6.117069582551581,
+          "bias_pp": 0.819027777777778,
+          "within_5pp_fraction": 0.6944444444444444
+        }
+      },
+      "validation": {
+        "player": {
+          "samples": 12,
+          "mae_pp": 3.5474999999999977,
+          "median_absolute_error_pp": 3.4849999999999994,
+          "p90_absolute_error_pp": 5.50399999999999,
+          "maximum_absolute_error_pp": 5.960000000000008,
+          "rmse_pp": 3.8667115658312707,
+          "bias_pp": 1.137500000000001,
+          "within_5pp_fraction": 0.8333333333333334
+        },
+        "opponent": {
+          "samples": 12,
+          "mae_pp": 3.579166666666667,
+          "median_absolute_error_pp": 3.625,
+          "p90_absolute_error_pp": 6.893,
+          "maximum_absolute_error_pp": 7.689999999999998,
+          "rmse_pp": 4.390701348683754,
+          "bias_pp": 0.5808333333333344,
+          "within_5pp_fraction": 0.6666666666666666
+        },
+        "both": {
+          "samples": 24,
+          "mae_pp": 3.5633333333333326,
+          "median_absolute_error_pp": 3.509999999999998,
+          "p90_absolute_error_pp": 6.3800000000000034,
+          "maximum_absolute_error_pp": 7.689999999999998,
+          "rmse_pp": 4.137010796859651,
+          "bias_pp": 0.8591666666666677,
+          "within_5pp_fraction": 0.75
+        }
+      }
+    }
+  ],
+  "exclusions": [],
+  "test_records_read": false,
+  "scope": "Approximation calibrated only on reviewed games of the named player; not CAPS2 or per-move label ground truth.",
+  "model_digest": "9ac6e0a07ea9d732f2f2cb54ff05b4cfeed2057a1bd6a93757a37a6b153e88d9"
+}

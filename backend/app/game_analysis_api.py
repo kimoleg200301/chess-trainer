@@ -15,7 +15,7 @@ from .config import settings
 from .background import BackgroundStart, request_background
 from .db import get_db
 from .engine_resources import engine_slots
-from .game_sources import safe_game_url, source_game_time
+from .game_sources import chesscom_accuracies, safe_game_url, source_game_time
 from .models import GameAnalysis, ImportedGame, ImportJob, User, now
 from .security import current_user
 from .chesscom_sync import SyncRequest, get_sync, request_sync
@@ -94,6 +94,7 @@ def game_view(game: ImportedGame, job: ImportJob, analysis: GameAnalysis | None 
         **{key: game.data.get(key, "") for key in ("white", "black", "result", "date", "event")},
         "game_url": safe_game_url(game.data.get("game_url", "")),
         "source_game_at": source_game_time(game.data),
+        "chesscom_accuracies": chesscom_accuracies(game.data.get("chesscom_accuracies")),
         "username": job.username,
         "total_plies": len(game.data.get("moves", [])),
         "analysis_id": analysis.id if analysis else None,
@@ -105,8 +106,21 @@ def game_view(game: ImportedGame, job: ImportJob, analysis: GameAnalysis | None 
 
 def analysis_view(analysis: GameAnalysis, game: ImportedGame, job: ImportJob) -> dict:
     from .game_analysis_engine import ANALYSIS_METHOD, CATEGORY_NAMES, summarize_moves
+    from .accuracy_calibration import calibrate_summary, calibration_metadata, load_active_profile
     total = len(game.data["moves"])
     initial_side = "white" if chess.Board(game.data["initial_fen"]).turn else "black"
+    summary = summarize_moves(analysis.moves, total, starting_side=initial_side,
+                              completed=analysis.status == "completed")
+    profile = load_active_profile()
+    summary = calibrate_summary(analysis.moves, summary, game.data, username=job.username,
+                                current_version=(analysis.analysis_version == ANALYSIS_VERSION
+                                                 and (not profile or profile.get("analysis_version", ANALYSIS_VERSION)
+                                                      == ANALYSIS_VERSION)),
+                                profile=profile)
+    method = dict(ANALYSIS_METHOD)
+    if profile and any(summary[side].get("estimated_chesscom_accuracy") is not None
+                       for side in ("white", "black")):
+        method["calibration"] = calibration_metadata(profile)
     return {
         "id": analysis.id, "game_id": game.id,
         "game": {**game_view(game, job, analysis), "initial_fen": game.data["initial_fen"]},
@@ -115,9 +129,8 @@ def analysis_view(analysis: GameAnalysis, game: ImportedGame, job: ImportJob) ->
         "analysis_version": analysis.analysis_version,
         "analysis_outdated": analysis.analysis_version != ANALYSIS_VERSION,
         "error": analysis.error, "created_at": analysis.created_at, "updated_at": analysis.updated_at,
-        "summary": summarize_moves(analysis.moves, total, starting_side=initial_side,
-                                   completed=analysis.status == "completed"),
-        "moves": analysis.moves, "category_names": CATEGORY_NAMES, "method": ANALYSIS_METHOD,
+        "summary": summary,
+        "moves": analysis.moves, "category_names": CATEGORY_NAMES, "method": method,
     }
 
 

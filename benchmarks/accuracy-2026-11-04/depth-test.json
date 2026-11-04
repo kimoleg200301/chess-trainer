@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "kind": "frozen_model_evaluation",
+  "model_digest": "9ac6e0a07ea9d732f2f2cb54ff05b4cfeed2057a1bd6a93757a37a6b153e88d9",
+  "selection_digest": "aba7bdeda843e3d15993f4532a73f3005671110ca56a1f0f0b6abe8658c4c104",
+  "split": "test",
+  "evaluation_is_subset": true,
+  "frozen_split_game_count": 12,
+  "same_engine_profile_as_fitting": false,
+  "engine_configs": [
+    {
+      "digest": "4bad4c0a3d07c57982ac325b13d0d1723537593aae53d383e88335c73c360918",
+      "config": {
+        "stockfish_path": "/opt/stockfish/stockfish-linux-x86-64-universal",
+        "stockfish_sha256": "0f83d24cc46d2c66c60f16001af5444873bc112b7d028594513426894c12da19",
+        "source_sha256": {
+          "backend/app/game_analysis_engine.py": "5a3fa843ba9c5ffd1cecdb75e53e11c034d2af6c1b5353d2d05e70139693374f",
+          "backend/app/generation.py": "4301355ee4775ee4d5a837458d55477a60b252d1ae719069410baddb71d83401"
+        },
+        "runner_sha256": "ed8b78783d2f49d6bcd19b4864b91a2703e468bdf28507257ee2ccc10fdb8aa5",
+        "helper_sha256": "6ed62299e8aea359f19f0d21491715ce48665e5b579668055b5c82529032475d",
+        "python_chess_version": "1.11.2",
+        "requested_player": "kimskiy1114",
+        "analysis_scope": "requested_player_only",
+        "opponent_policy": "explicit_unassessed_no_retry",
+        "engine_options": {
+          "Threads": 2,
+          "Hash": 256
+        },
+        "search": {
+          "nodes": 2000000,
+          "max_time": 3.0,
+          "max_position_time": 30.0
+        },
+        "retry_unassessed": true,
+        "retry_search": {
+          "nodes": 4000000,
+          "max_time": 6.0,
+          "max_position_time": 45.0
+        },
+        "fresh_engine_per_ply": true,
+        "engine_timeout": 5,
+        "method": {
+          "id": "tactics-lab-expected-result-v1",
+          "name": "Оценка тренажёра на основе Stockfish",
+          "description": "Собственная приближённая оценка, которая может отличаться от Chess.com.",
+          "expected_result": "1 / (1 + exp(-centipawns / 300)); мат за игрока — 1, против — 0",
+          "move_accuracy": "100 * exp(-6 * max(0, best_expected - played_expected))",
+          "game_accuracy": "Среднее по оценённым невынужденным ходам после полной проверки стороны",
+          "loss_thresholds": {
+            "excellent": 0.01,
+            "good": 0.03,
+            "inaccuracy": 0.07,
+            "mistake": 0.15
+          },
+          "special_moves": "Сильный и бриллиантовый — консервативные эвристические отметки, а не официальный вердикт Chess.com."
+        }
+      }
+    }
+  ],
+  "selected_games": 3,
+  "scored_games": 3,
+  "baseline": {
+    "player": {
+      "samples": 3,
+      "mae_pp": 9.99333333333334,
+      "median_absolute_error_pp": 8.91000000000001,
+      "p90_absolute_error_pp": 15.086000000000011,
+      "maximum_absolute_error_pp": 16.63000000000001,
+      "rmse_pp": 11.190153409731856,
+      "bias_pp": 9.99333333333334,
+      "within_5pp_fraction": 0.3333333333333333
+    },
+    "opponent": null,
+    "both": {
+      "samples": 3,
+      "mae_pp": 9.99333333333334,
+      "median_absolute_error_pp": 8.91000000000001,
+      "p90_absolute_error_pp": 15.086000000000011,
+      "maximum_absolute_error_pp": 16.63000000000001,
+      "rmse_pp": 11.190153409731856,
+      "bias_pp": 9.99333333333334,
+      "within_5pp_fraction": 0.3333333333333333
+    }
+  },
+  "calibrated": {
+    "player": {
+      "samples": 3,
+      "mae_pp": 5.886666666666666,
+      "median_absolute_error_pp": 3.8400000000000034,
+      "p90_absolute_error_pp": 9.432,
+      "maximum_absolute_error_pp": 10.829999999999998,
+      "rmse_pp": 6.855037077458687,
+      "bias_pp": 3.8933333333333358,
+      "within_5pp_fraction": 0.6666666666666666
+    },
+    "opponent": null,
+    "both": {
+      "samples": 3,
+      "mae_pp": 5.886666666666666,
+      "median_absolute_error_pp": 3.8400000000000034,
+      "p90_absolute_error_pp": 9.432,
+      "maximum_absolute_error_pp": 10.829999999999998,
+      "rmse_pp": 6.855037077458687,
+      "bias_pp": 3.8933333333333358,
+      "within_5pp_fraction": 0.6666666666666666
+    }
+  },
+  "paired_improvement": {
+    "player": {
+      "games": 3,
+      "mae_reduction_pp": 4.106666666666674,
+      "bootstrap_95pct_interval_pp": [
+        0.5999999999999943,
+        5.920000000000016
+      ],
+      "bootstrap_repetitions": 5000,
+      "resampling_unit": "whole game"
+    },
+    "opponent": null,
+    "both": {
+      "games": 3,
+      "mae_reduction_pp": 4.106666666666674,
+      "bootstrap_95pct_interval_pp": [
+        0.5999999999999943,
+        5.920000000000016
+      ],
+      "bootstrap_repetitions": 5000,
+      "resampling_unit": "whole game"
+    }
+  },
+  "exclusions": [
+    {
+      "id": "20ed14c2b785848ed9780dd3",
+      "split": "test",
+      "side": "white",
+      "reason": "unassessed_moves"
+    },
+    {
+      "id": "bdd220401ff43b6ed081c474",
+      "split": "test",
+      "side": "white",
+      "reason": "unassessed_moves"
+    },
+    {
+      "id": "8049fc6c4d08e1d3740d4d15",
+      "split": "test",
+      "side": "white",
+      "reason": "unassessed_moves"
+    }
+  ],
+  "predictions": [
+    {
+      "id": "20ed14c2b785848ed9780dd3",
+      "split": "test",
+      "side": "black",
+      "url": "https://www.chess.com/game/live/185623177576",
+      "target": 66.77,
+      "group": "player",
+      "mean_move_accuracy": 83.44777777777777,
+      "mean_loss": 0.03870955555555555,
+      "scored_moves": 18,
+      "total_moves": 18,
+      "player_rating": 328,
+      "time_control": "300+5",
+      "record_digest": "0e68637b8e8fea303804ab697b4103968190dc172bc9f08ebb27ee7ff28d8217",
+      "baseline": 83.4,
+      "prediction": 77.6
+    },
+    {
+      "id": "bdd220401ff43b6ed081c474",
+      "split": "test",
+      "side": "black",
+      "url": "https://www.chess.com/game/live/185790481826",
+      "target": 76.49,
+      "group": "player",
+      "mean_move_accuracy": 85.37473684210526,
+      "mean_loss": 0.04703936842105263,
+      "scored_moves": 19,
+      "total_moves": 19,
+      "player_rating": 326,
+      "time_control": "300+5",
+      "record_digest": "718f634e25830c153b56d5b29a0a0c3a9f79ac8e0d8b51f0c49afaa34f8d7f67",
+      "baseline": 85.4,
+      "prediction": 73.5
+    },
+    {
+      "id": "8049fc6c4d08e1d3740d4d15",
+      "split": "test",
+      "side": "black",
+      "url": "https://www.chess.com/game/live/186222955154",
+      "target": 91.36,
+      "group": "player",
+      "mean_move_accuracy": 95.8145,
+      "mean_loss": 0.0075248,
+      "scored_moves": 20,
+      "total_moves": 20,
+      "player_rating": 255,
+      "time_control": "300+5",
+      "record_digest": "6845e76c49d436c060092424faa77aebdae65fd0aa6865ea108efedc60a2bf08",
+      "baseline": 95.8,
+      "prediction": 95.2
+    }
+  ],
+  "note": "Do not retune against this evaluation; new model selection requires a fresh hold-out."
+}

@@ -71,7 +71,7 @@ ImportJob adds `games`:
 
 `ply` is zero-based. Scores are centipawns from the mover's perspective; signed mate fields distinguish mate for/against the mover. Phase is a heuristic (`opening`, `middlegame`, `endgame`). Inspectable analysis intentionally exposes improved moves on this screen; ordinary training still hides its solution. A useful improvement need not qualify as a tactical puzzle. Generated ratings are approximate (`rating_estimated:true`). Engine limits favor a compact set of unambiguous tactics; they do not guarantee exhaustive or perfect game analysis.
 
-Identical imports reopen the stored job. Overlapping batches can reuse completed analyses only for the same source, requested player and current analysis version. Old analyses do not silently become current through reuse. Import state is stored in PostgreSQL. The UI polls saved results while visible and refreshes on return. Hiding or leaving the screen never changes server execution intent. Explicit pause permits the current step to finish and checkpoint, then prevents further steps.
+Identical imports reopen the stored job and refresh any newly available Chess.com reference accuracies without recalculating its report. Overlapping batches can reuse completed analyses only for the same source, requested player and current analysis version. Old analyses do not silently become current through reuse. Import state is stored in PostgreSQL. The UI polls saved results while visible and refreshes on return. Hiding or leaving the screen never changes server execution intent. Explicit pause permits the current step to finish and checkpoint, then prevents further steps.
 
 ## Independent whole-game analysis
 
@@ -99,9 +99,13 @@ Successful `/api/imports/chesscom` also remembers its nickname. Migration `0009_
 GameAnalysisSource:
 ```
 {id,white,black,result,date,event,game_url,source_game_at:string|null,
- username:string|null,total_plies,analysis_id:number|null,
+ username:string|null,chesscom_accuracies:{white?:number,black?:number}|null,
+ total_plies,analysis_id:number|null,
  analysis_status:"ready"|"running"|"completed"|"failed"|null,analysis_outdated:boolean,background_requested:boolean}
 ```
+
+`chesscom_accuracies` contains original, optional game-level percentages from the public archive's `accuracies` field, separately from locally calculated `summary.accuracy`. Only finite numeric values from 0 through 100 are accepted; a missing side is omitted and no valid sides yields `null`. These reference scores do not provide or validate individual move classifications. Sync and repeated historical imports update valid reference sides in every owned copy matched by fingerprint or canonical Chess.com game URL, preserving reports and all other game metadata. Missing or invalid upstream values do not erase a previously known side. Newly imported overlapping batches inherit known reference scores. No additional Chess.com analysis request or Stockfish recalculation is triggered by a reference refresh.
+
 GameAnalysisReport:
 ```
 {id,game_id,game:GameAnalysisSource & {initial_fen:string},
@@ -112,7 +116,7 @@ GameAnalysisReport:
 ```
 GameSideSummary:
 ```
-{accuracy:number|null,provisional_accuracy:number|null,counts:{[category]:number},
+{accuracy:number|null,provisional_accuracy:number|null,estimated_chesscom_accuracy:number|null,counts:{[category]:number},
  total_moves,analysed_moves,assessed_moves,accuracy_moves,coverage:number,
  complete:boolean,accuracy_complete:boolean}
 ```
@@ -132,6 +136,8 @@ Categories are `brilliant` (бриллиантовый), `great` (сильный
 The method is Tactics Lab's own Stockfish heuristic, not Chess.com's formula. A centipawn score maps to `E(cp) = 1 / (1 + exp(-cp / 300))`, with `cp` clamped to ±3000; mate for/against the mover maps to 1/0 and a terminal draw to 0.5. `loss = max(0, E(best) - E(played))`; move accuracy is `100 * exp(-6 * loss)`. Ordinary loss thresholds are ≤0.01 excellent, ≤0.03 good, ≤0.07 inaccuracy, ≤0.15 mistake, otherwise blunder. A checked engine choice within 0.01 is best. Conservative extra checks can mark a critical unique choice as great or a sound material sacrifice as brilliant; these labels may differ from Chess.com.
 
 Side accuracy is the arithmetic mean of assessed non-forced move accuracies. `coverage` is the assessed percentage of that side's total moves, from 0 to 100. Partial reports expose `provisional_accuracy`; final `accuracy` stays null until the report finishes and every move for that side is assessed. A completed report can still contain `unassessed` moves and therefore lack a final percentage. Forced moves count toward coverage but not the mean; a side with only forced moves has no measured accuracy. `complete` describes processed moves; `accuracy_complete` describes full assessment, not the existence of a non-forced sample.
+
+`estimated_chesscom_accuracy` is a separate optional game-level approximation from an explicitly installed calibration profile. It never replaces `accuracy`, move classifications, or `game.chesscom_accuracies`. The estimate requires a completed current-version report, fully assessed non-forced evidence for the matching player, and the profile's exact time control. It is `null` outside that scope or when evidence is incomplete. `method.calibration`, when an estimate is present, provides the profile ID, scope, formula and aggregate test metrics. The UI labels this estimate with `≈` and keeps original Chess.com values distinct. Summary calibration is applied when reading a report; it does not rerun Stockfish or mutate saved analysis rows. See [ACCURACY_CALIBRATION.md](ACCURACY_CALIBRATION.md) for the benchmark and its limits.
 
 Each checkpoint and completed report is stored in PostgreSQL independently of tactic-generation state. The lifespan worker continues requested analyses without browser requests, including while the screen is closed. Pausing is explicit; an in-flight step may still save. Saved intent and checkpoints survive application restart.
 

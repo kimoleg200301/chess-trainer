@@ -20,10 +20,20 @@ function dateLabel(value: string) {
 }
 function Spinner() { return <LoaderCircle size={17} className="spinner" aria-hidden="true" />; }
 
-function AccuracyCard({ side, name, result, completed }: { side: 'white' | 'black'; name: string; result: GameSideSummary; completed: boolean }) {
+function estimatedAccuracy(result: GameSideSummary, completed: boolean): number | null {
+  const value = result.estimated_chesscom_accuracy;
+  return completed && result.accuracy_complete && result.accuracy != null && result.accuracy_moves > 0
+    && typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
+}
+
+function AccuracyCard({ side, name, result, completed, chesscomAccuracy }: { side: 'white' | 'black'; name: string; result: GameSideSummary; completed: boolean; chesscomAccuracy?: number }) {
+  const reference = typeof chesscomAccuracy === 'number' && Number.isFinite(chesscomAccuracy) && chesscomAccuracy >= 0 && chesscomAccuracy <= 100 ? chesscomAccuracy : null;
+  const estimate = estimatedAccuracy(result, completed), local = estimate ?? result.accuracy;
   return <div className={`analysis-accuracy-card ${side}`}>
     <div className="analysis-player"><span className={`analysis-side-dot ${side}`} /><div><strong>{name}</strong><span>{side === 'white' ? 'Белые' : 'Чёрные'}</span></div></div>
-    <div className="analysis-accuracy-value"><strong>{result.accuracy == null ? '—' : result.accuracy.toFixed(1)}{result.accuracy != null && <span>%</span>}</strong><span>Точность ходов</span></div>
+    {reference != null && <div className="analysis-accuracy-value analysis-reference-accuracy"><strong>{reference.toFixed(2)}<span>%</span></strong><span>Точность Chess.com</span></div>}
+    <div className={`analysis-accuracy-value analysis-local-accuracy${reference != null ? ' comparison' : ''}`}><strong>{estimate != null && <span className="analysis-approximation-sign">≈</span>}{local == null ? '—' : local.toFixed(1)}{local != null && <span>%</span>}</strong><span>{estimate != null ? 'Приближение к Chess.com' : 'Оценка тренажёра'}</span></div>
+    {reference == null && <small className="analysis-reference-unavailable">Точность Chess.com недоступна.</small>}
     <p>{result.accuracy != null ? `Оценено ходов: ${result.assessed_moves} из ${result.total_moves}` : !result.total_moves ? 'У этой стороны нет ходов.' : result.accuracy_moves === 0 && completed && result.accuracy_complete ? 'Все ходы вынужденные — точность не считается.' : completed ? 'Часть ходов не получила надёжной оценки.' : 'Итог появится после полного анализа.'}</p>
     {result.accuracy == null && result.provisional_accuracy != null && <small className="analysis-provisional">По оценённым ходам: {result.provisional_accuracy.toFixed(1)}% · предварительно</small>}
     <div className="analysis-coverage"><span style={{ width: `${Math.max(0, Math.min(100, result.coverage || 0))}%` }} /></div><small>Проверено: {result.analysed_moves} / {result.total_moves}</small>
@@ -180,6 +190,7 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     finally { actionFlight.current = false; if (mounted.current) setActionBusy(null); }
   }
   const running = !!report?.background_requested && !report.analysis_outdated && report.status !== 'completed' && report.status !== 'failed', completed = report?.status === 'completed', disabled = actionBusy !== null || stepBusy;
+  const hasEstimate = !!report && [report.summary.white, report.summary.black].some(result => estimatedAccuracy(result, completed) != null);
   const percent = actionBusy === 'restart' ? 0 : completed ? 100 : report?.total_plies ? Math.min(99, Math.floor(report.cursor / report.total_plies * 100)) : 0;
   const retrying = !completed && report?.cursor === report?.total_plies && !!report?.retry_pending;
   const progressText = retrying ? `Уточняем оценки ходов: осталось ${report?.retry_pending}. Для них увеличено время анализа.` : `Проверено: ${report?.cursor || 0} из ${report?.total_plies || currentGame?.total_plies || 0} полуходов`;
@@ -224,10 +235,10 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
       <div className="review-game-heading"><h1>{currentGame.white} <span>— {currentGame.black}</span></h1>{!completed && <button className="text-button" onClick={() => openScreen('progress')}>Ход анализа · {percent}% <ArrowRight size={15} /></button>}</div>
       <AnalysisReview key={report.id} report={report} selectedPly={selectedPly} onSelect={setSelectedPly} visible={visible} />
       <details className="analysis-summary panel"><summary>Отчёт о партии — точность и качество ходов</summary>
-        <div className="analysis-accuracy-cards"><AccuracyCard side="white" name={currentGame.white} result={report.summary.white} completed={completed} /><AccuracyCard side="black" name={currentGame.black} result={report.summary.black} completed={completed} /></div>
-        <section className="analysis-categories"><div className="panel-title"><h2>Качество ходов</h2><span>{completed ? 'Итог партии' : 'По проверенным ходам'}</span></div><div className="analysis-counts-heading"><span>Категория</span><span>Белые</span><span>Чёрные</span></div>{categories.map(item => <div className="analysis-counts-row" key={item.id}><span><b className={`analysis-category-symbol ${item.id}`}>{item.symbol}</b>{item.name}</span><strong>{report.summary.white.counts[item.id] || 0}</strong><strong>{report.summary.black.counts[item.id] || 0}</strong></div>)}<p>Вынужденные ходы и ходы без надёжной оценки не входят в расчёт точности.</p></section>
+        <div className="analysis-accuracy-cards"><AccuracyCard side="white" name={currentGame.white} result={report.summary.white} completed={completed} chesscomAccuracy={report.game.chesscom_accuracies?.white} /><AccuracyCard side="black" name={currentGame.black} result={report.summary.black} completed={completed} chesscomAccuracy={report.game.chesscom_accuracies?.black} /></div>
+        <section className="analysis-categories"><div className="panel-title"><h2>Качество ходов</h2><span>{completed ? 'Итог партии' : 'По проверенным ходам'}</span></div><div className="analysis-counts-heading"><span>Категория</span><span>Белые</span><span>Чёрные</span></div>{categories.map(item => <div className="analysis-counts-row" key={item.id}><span><b className={`analysis-category-symbol ${item.id}`}>{item.symbol}</b>{item.name}</span><strong>{report.summary.white.counts[item.id] || 0}</strong><strong>{report.summary.black.counts[item.id] || 0}</strong></div>)}<p>Вынужденные ходы и ходы без надёжной оценки не входят в расчёт точности тренажёра.</p></section>
         <div className="analysis-report-actions">{controls}{safeLink(currentGame.game_url) && <a className="source-link" href={currentGame.game_url} target="_blank" rel="noreferrer">Исходная партия <ExternalLink size={13} /></a>}</div>
-        <p className="analysis-method-note">Оценка Stockfish может отличаться от Chess.com. «Бриллиантовый» — приблизительная оценка корректной жертвы. Анализ не создаёт тренировочные задачи.</p>
+        <p className="analysis-method-note">Точность Chess.com показана отдельно, когда доступна. {hasEstimate ? 'Приближение настроено по партиям этого игрока с контролем 5+5 и может отличаться от Chess.com. Качество ходов оценивает Stockfish.' : 'Оценка тренажёра и качество ходов рассчитаны Stockfish и могут отличаться от Chess.com.'} «Бриллиантовый» — приблизительная оценка корректной жертвы. Анализ не создаёт тренировочные задачи.</p>
       </details>
     </> : <div className="panel analysis-placeholder"><p>Разбор пока не рассчитан.</p><button className="button primary" onClick={() => openScreen('progress')}>Перейти к анализу</button></div>}
   </section>;

@@ -85,6 +85,7 @@ export type GameAnalysisSource = {
   background_requested: boolean;
   id: number; white: string; black: string; result: string; date: string;
   game_url: string; source_game_at: string | null; username: string | null; total_plies: number;
+  chesscom_accuracies?: Partial<Record<'white' | 'black', number>> | null;
   analysis_id: number | null; analysis_status: 'ready' | 'running' | 'completed' | 'failed' | null;
   analysis_outdated: boolean;
 };
@@ -99,6 +100,7 @@ export type AnalysedGameMove = {
 };
 export type GameSideSummary = {
   accuracy: number | null; provisional_accuracy: number | null; counts: Record<GameMoveCategory, number>;
+  estimated_chesscom_accuracy?: number | null;
   total_moves: number; analysed_moves: number; assessed_moves: number; accuracy_moves: number;
   coverage: number; complete: boolean; accuracy_complete: boolean;
 };
