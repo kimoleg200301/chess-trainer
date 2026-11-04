@@ -121,6 +121,7 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   const [sessionSummary, setSessionSummary] = useState(false);
   const [timeError, setTimeError] = useState(false);
   const actionPending = useRef(false);
+  const timeSaves = useRef(new Set<Promise<void>>());
   const mounted = useRef(true);
   const fetchVersion = useRef(0);
   const dashboardRef = useRef(dashboard); dashboardRef.current = dashboard;
@@ -151,11 +152,15 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   useEffect(() => { if (visible && screen === 'practice') { window.scrollTo({ top: 0, behavior: 'instant' }); sessionBack.current?.focus({ preventScroll: true }); } }, [visible, screen]);
   useEffect(() => { setEvidenceIndex(0); }, [selectedSkill]);
   const persistTime = useCallback((id: number, elapsed: number, keepalive: boolean) => {
-    void coachApi.time(id, elapsed, keepalive).then(result => {
+    // Actions carry elapsed_ms themselves and must not compete with autosave for the user lock.
+    if (actionPending.current) return;
+    const request: Promise<void> = coachApi.time(id, elapsed, keepalive).then(result => {
       if (!mounted.current || currentAttempt.current?.id !== id) return;
       setAttempt(previous => previous?.id === id && previous.status === 'active' && (previous.elapsed_ms ?? -1) < (result.elapsed_ms ?? -1) ? { ...previous, elapsed_ms: result.elapsed_ms } : previous);
       setTimeError(false);
-    }).catch(() => { if (mounted.current && !keepalive && currentAttempt.current?.id === id && currentAttempt.current.status === 'active') setTimeError(true); });
+    }).catch(() => { if (mounted.current && !keepalive && currentAttempt.current?.id === id && currentAttempt.current.status === 'active') setTimeError(true); })
+      .finally(() => { timeSaves.current.delete(request); });
+    timeSaves.current.add(request);
   }, []);
   const timer = useAttemptTimer({ attemptId: attempt?.id ?? null, elapsedMs: attempt?.elapsed_ms ?? null, running: visible && screen === 'practice' && attempt?.status === 'active' && !busy, onPersist: persistTime });
   useScreenWakeLock(visible && screen === 'practice' && !!attempt);
@@ -200,7 +205,11 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   async function action(name: string, operation: () => Promise<void>) {
     if (actionPending.current) return;
     actionPending.current = true; ++fetchVersion.current; setBusy(name); setLoading(false); setError('');
-    try { await operation(); } catch (err) { if (mounted.current) setError(errorText(err)); }
+    try {
+      // timer.pause() may just have sent a save; settle every earlier save before mutating.
+      await Promise.allSettled([...timeSaves.current]);
+      if (mounted.current) await operation();
+    } catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { actionPending.current = false; if (mounted.current) setBusy(null); }
   }
   async function startCoach(username: string, control: string) { await action('start', async () => { setDashboard(await coachApi.start(username, control)); setEditingSetup(false); }); }
@@ -224,6 +233,7 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
     const id = attempt.id, elapsed = timer.pause(), previousFen = attempt.fen;
     await action('move', async () => {
       const result = await coachApi.move(id, uci, elapsed);
+      setTimeError(false);
       acceptAttempt(result.attempt); setFeedback(result.feedback); setFeedbackKind(result.accepted ? 'success' : 'wrong'); setHintSquare(null);
       if (result.attempt.status === 'completed') playSound('complete');
       else if (result.accepted) { const board = new Chess(previousFen); playSound(board.move(uci)?.captured ? 'capture' : 'move'); }
@@ -233,12 +243,12 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   async function hint() {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     const id = attempt.id, elapsed = timer.pause();
-    await action('hint', async () => { const result = await coachApi.hint(id, elapsed); setAttempt(result.attempt); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); });
+    await action('hint', async () => { const result = await coachApi.hint(id, elapsed); setTimeError(false); setAttempt(result.attempt); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); });
   }
   async function reveal() {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     const id = attempt.id, elapsed = timer.pause();
-    await action('reveal', async () => { const result = await coachApi.reveal(id, elapsed); acceptAttempt(result); setHintSquare(null); setFeedback(result.feedback || 'Разбери продолжение и вернись к позиции в повторении.'); setFeedbackKind('neutral'); setReplayIndex(0); });
+    await action('reveal', async () => { const result = await coachApi.reveal(id, elapsed); setTimeError(false); acceptAttempt(result); setHintSquare(null); setFeedback(result.feedback || 'Разбери продолжение и вернись к позиции в повторении.'); setFeedbackKind('neutral'); setReplayIndex(0); });
   }
   function leavePractice() { timer.pause(); setReplayPlaying(false); setScreen('dashboard'); setSessionSummary(sessionCount > 0); void refresh(); }
   const profile = dashboard?.profile;

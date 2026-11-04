@@ -237,10 +237,159 @@ def check(browser, width, height):
     context.close()
 
 
+def check_autosave_actions(browser):
+    """A slow heartbeat must finish before any practice mutation is sent.
+
+    Pending routes represent real overlapping requests, rather than a sleeping
+    route callback that would prevent Playwright from observing the overlap.
+    The fixture returns the production 409 when an action races a /time write.
+    """
+    for operation, fail_time in [('move', False), ('hint', False), ('reveal', False), ('move', True)]:
+        context = browser.new_context(viewport=dict(width=390, height=844), has_touch=True, is_mobile=True)
+        page = context.new_page()
+        page.add_init_script('''(() => {
+          const originalNow = Date.now;
+          window.coachTestTimeOffset = 0;
+          Date.now = () => originalNow() + window.coachTestTimeOffset;
+        })();''')
+        errors, pending_times, pending_actions, action_requests, conflicts, saved_times = [], [], [], [], [], []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        data = fixtures()
+        data['profile'].update(status='tracking', baseline_ready=True, baseline_games=40,
+                               baseline_completed=40, progress=100, syncing=False)
+        data['active_attempt_id'] = 1
+        attempt = dict(id=1, skill_id='calculation', skill_title='Расчёт вариантов', kind='decision',
+                       fen=FEN, starting_fen=FEN, learner_white=True, status='active', mistakes=0, hints_used=0,
+                       elapsed_ms=0, last_move=None, ply_index=0, total_plies=1,
+                       prompt='Найди сильное продолжение.', feedback='', is_new=True,
+                       source=dict(game_url='https://www.chess.com/game/live/123456', move_number=1, own_game=True),
+                       solution=None, target_seconds=None)
+
+        def respond(route):
+            request = route.request
+            path = urlparse(request.url).path.removeprefix('/api')
+            body = request.post_data_json if request.method == 'POST' else None
+            if path == '/auth/me': result = dict(username='tester')
+            elif path == '/meta':
+                result = dict(total_puzzles=100, themes=[], min_rating=400, max_rating=2000,
+                              collections=[dict(id='lichess', name='Lichess', count=100)])
+            elif path == '/stats':
+                result = dict(solved=0, total_attempts=0, accuracy=0, streak=0, due_count=0,
+                              average_solution_ms=None, timed_solutions=0, puzzle_rating=1200,
+                              rated_attempts=0, by_theme=[], recent=[])
+            elif path == '/training/current': result = dict(attempt=None, solution=[], game_url='')
+            elif path == '/coach': result = deepcopy(data)
+            elif path == '/coach/practice/1': result = deepcopy(attempt)
+            elif path == '/coach/practice/1/time':
+                pending_times.append((route, body))
+                return
+            elif path.startswith('/coach/practice/1/'):
+                action = path.rsplit('/', 1)[1]
+                assert action in {'move', 'hint', 'reveal'}, path
+                action_requests.append((action, body))
+                if pending_times:
+                    conflicts.append(action)
+                    route.fulfill(status=409, json={'detail': 'Другая операция с вашей подборкой ещё выполняется. Повторите через несколько секунд.'})
+                else:
+                    pending_actions.append((route, action, body))
+                return
+            else:
+                raise AssertionError(path)
+            route.fulfill(json=result)
+
+        def wait_for(predicate, description):
+            for _ in range(150):
+                if predicate():
+                    return
+                page.wait_for_timeout(20)
+            raise AssertionError(description)
+
+        page.route('**/api/**', respond)
+        page.route('https://fonts.googleapis.com/**', lambda route: route.abort())
+        try:
+            page.goto(BASE)
+            page.get_by_role('button', name='Тренер', exact=True).click()
+            page.get_by_role('button', name='Продолжить занятие', exact=True).click()
+            expect(page.get_by_role('region', name='Занятие с личным тренером')).to_be_visible()
+            page.wait_for_timeout(120)
+            page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+            wait_for(lambda: bool(pending_times), 'The timer did not start the delayed heartbeat')
+            assert pending_times[0][1]['elapsed_ms'] > 0
+
+            if operation == 'move':
+                page.locator('.coach-session [data-square="e2"]').click()
+                page.locator('.coach-session [data-square="e4"]').click()
+            else:
+                page.get_by_role('button', name='Подсказка' if operation == 'hint' else 'Разобрать', exact=True).click()
+            page.wait_for_timeout(160)
+            assert not action_requests, (operation, 'Action overlapped an unfinished /time request', action_requests, conflicts)
+            expect(page.locator('.coach-session-underboard')).to_contain_text('Разобрано: 0 / 10')
+
+            # Resolve every heartbeat already sent, including pause()'s forced
+            # checkpoint. Even a failed save must not discard the actual move.
+            while pending_times:
+                route, body = pending_times.pop(0)
+                saved_times.append(body['elapsed_ms'])
+                if fail_time:
+                    route.fulfill(status=503, json={'detail': 'Временная ошибка сохранения времени.'})
+                else:
+                    attempt['elapsed_ms'] = max(attempt['elapsed_ms'], body['elapsed_ms'])
+                    route.fulfill(json=deepcopy(attempt))
+            wait_for(lambda: bool(pending_actions), 'Action was not sent after the heartbeat settled')
+            assert len(action_requests) == 1 and not conflicts
+
+            # Keep the action in flight while the timer's 15-second retry becomes
+            # due. A failed preceding save leaves an unacknowledged checkpoint,
+            # so this exercises the guard against fresh autosaves during actions.
+            page.evaluate("window.coachTestTimeOffset += 16000; document.dispatchEvent(new Event('visibilitychange'))")
+            page.wait_for_timeout(350)
+            assert not pending_times, (operation, 'Autosave started while the action was in flight')
+            route, action, body = pending_actions.pop()
+            assert action == operation and body['elapsed_ms'] >= max(saved_times)
+            assert body['elapsed_ms'] < 5000, 'Waiting for the server was counted as solving time'
+            attempt['elapsed_ms'] = max(attempt['elapsed_ms'], body['elapsed_ms'])
+            if action == 'hint':
+                attempt['hints_used'] += 1
+                result = dict(attempt=deepcopy(attempt), message='Проверь центральные пешки.', from_square='e2')
+            else:
+                if action == 'move':
+                    assert body['move'] == 'e2e4'
+                    attempt.update(status='completed', fen=E4, last_move='e2e4', ply_index=1,
+                                   feedback='Ход принят.')
+                else:
+                    attempt.update(status='revealed', feedback='Разбери идею.')
+                attempt['solution'] = dict(initial_fen=FEN,
+                    moves=[dict(uci='e2e4', san='e4', fen=E4)], explanation='Проверь безопасность фигур.')
+                data['active_attempt_id'] = None
+                result = dict(accepted=True, attempt=deepcopy(attempt), feedback=attempt['feedback']) if action == 'move' else deepcopy(attempt)
+            route.fulfill(json=result)
+            if action == 'hint':
+                expect(page.get_by_text('Проверь центральные пешки.', exact=True)).to_be_visible()
+            else:
+                expect(page.get_by_role('heading', name='Сохрани эту идею' if action == 'move' else 'Пойми продолжение', exact=True)).to_be_visible()
+            expect(page.locator('.coach-session-underboard')).to_contain_text(f"Разобрано: {0 if action == 'hint' else 1} / 10")
+            expect(page.locator('.coach-session-detail')).to_contain_text('Без ошибок')
+            expect(page.get_by_role('alert')).to_have_count(0)
+            expect(page.locator('.coach-time-warning')).to_have_count(0)
+            page.wait_for_timeout(100)
+            assert len(action_requests) == 1 and attempt['mistakes'] == 0 and not conflicts
+            assert not errors, errors
+            print(f'PASS autosave/{operation}{"/save-failure" if fail_time else ""}: ordered writes, one action, preserved timing, no false mistakes')
+        finally:
+            for pending in [*pending_times, *pending_actions]:
+                try:
+                    pending[0].abort()
+                except Exception:
+                    pass
+            context.close()
+
+
 if __name__ == '__main__':
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE', '/usr/bin/chromium'),
                                     args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
-        for viewport in [(390, 844), (360, 640), (1280, 900), (740, 390)]:
-            check(browser, *viewport)
+        check_autosave_actions(browser)
+        if os.environ.get('COACH_AUTOSAVE_ONLY') != '1':
+            for viewport in [(390, 844), (360, 640), (1280, 900), (740, 390)]:
+                check(browser, *viewport)
         browser.close()
