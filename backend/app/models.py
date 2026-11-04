@@ -150,6 +150,14 @@ class GameAnalysis(Base):
     )
 
 
+class GameFavorite(Base):
+    __tablename__ = "game_favorites"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), primary_key=True)
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+
 class ChessComSync(Base):
     __tablename__ = "chesscom_sync"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, Gauge, LoaderCircle, Pause, Play, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, Gauge, LoaderCircle, Pause, Play, RefreshCw, Search, Star, X } from 'lucide-react';
 import { api } from './api';
 import { Link, navigate, useRoute } from './router';
 import { useBackgroundRefresh } from './useBackgroundRefresh';
 import { useChessComSync } from './useChessComSync';
+import { useGameFavorites } from './useGameFavorites';
 import AnalysisReview from './AnalysisReview';
 import SoundToggle from './SoundToggle';
 import { playSound } from './sound';
@@ -41,7 +42,9 @@ function AccuracyCard({ side, name, result, completed, chesscomAccuracy }: { sid
 }
 
 export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: { visible: boolean; onDataChanged?: () => void; onFocusChange?: (focused: boolean) => void }) {
-  const { pathname } = useRoute();
+  const { pathname, searchParams } = useRoute();
+  const favoritesOnly = searchParams.get('filter') === 'favorites';
+  const filterQuery = favoritesOnly ? '?filter=favorites' : '';
   const route = /^\/analysis\/([1-9]\d*)(\/review)?$/.exec(pathname);
   const selectedGame = route && Number.isSafeInteger(Number(route[1])) ? Number(route[1]) : null;
   const screen: 'list' | 'progress' | 'review' = selectedGame === null ? 'list' : route?.[2] ? 'review' : 'progress';
@@ -49,14 +52,17 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   screenRef.current = screen;
   const backButton = useRef<HTMLButtonElement>(null);
   const openScreen = useCallback((next: typeof screen) => {
-    if (next === 'list') navigate('/analysis');
-    else if (selectedRef.current !== null) navigate(`/analysis/${selectedRef.current}${next === 'review' ? '/review' : ''}`);
-  }, []);
+    if (next === 'list') navigate('/analysis' + filterQuery);
+    else if (selectedRef.current !== null) navigate(`/analysis/${selectedRef.current}${next === 'review' ? '/review' : ''}${filterQuery}`);
+  }, [filterQuery]);
   useEffect(() => { onFocusChange?.(screen !== 'list'); }, [screen, onFocusChange]);
   useEffect(() => { if (visible) { window.scrollTo({ top: 0, behavior: 'instant' }); backButton.current?.focus({ preventScroll: true }); } }, [screen, visible]);
   const [month, setMonth] = useState(''), [limit, setLimit] = useState(10);
   const { username, setUsername, confirmUsername, state: sync, sending: syncSending, error: syncError, acceptSync, synchronize, waiting: syncWaiting, cooldown: syncCooldown } = useChessComSync(visible && screen === 'list', onDataChanged);
   const [games, setGames] = useState<GameAnalysisSource[]>([]);
+  const { mergeFavorites, toggleFavorite, savingFavorite, favoriteError, clearFavoriteError } = useGameFavorites(setGames);
+  const favoriteGames = games.filter(game => game.is_favorite);
+  const displayedGames = favoritesOnly ? favoriteGames : games;
   const [loadedReport, setReport] = useState<{ gameId: number; value: GameAnalysisReport } | null>(null), [selectedPly, setSelectedPly] = useState<number | null>(null);
   const report = loadedReport?.gameId === selectedGame ? loadedReport.value : null;
   const [gamesLoaded, setGamesLoaded] = useState(false);
@@ -81,7 +87,7 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     reportRevision.current++; analysisRef.current = result.id; setReport({ gameId, value: result });
     // Background responses must not navigate away from a page the user has opened.
     if (result.status === 'completed' && window.location.pathname === `/analysis/${gameId}`) {
-      navigate(`/analysis/${gameId}/review`, { replace: true });
+      navigate(`/analysis/${gameId}/review${window.location.search}`, { replace: true });
     }
     setSelectedPly(previous => previous !== null && result.moves.some(move => move.ply === previous) ? previous : null);
   }, []);
@@ -114,7 +120,7 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
         result = await api<GameAnalysisReport>(`/game-analysis/${result.id}/resume`, {});
         if (!stillSelected()) return;
         if (result.status !== 'completed' && window.location.pathname === `/analysis/${game.id}/review`) {
-          navigate(`/analysis/${game.id}`, { replace: true });
+          navigate(`/analysis/${game.id}${window.location.search}`, { replace: true });
         }
       }
       setCurrentReport(result); updateGame(result, game.id);
@@ -125,13 +131,13 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   const loadGames = useCallback(async () => {
     const version = ++listVersion.current, revision = gamesRevision.current; setLoadingGames(true);
     try {
-      const result = await api<GameAnalysisList>('/game-analysis/games');
+      const result = await api<GameAnalysisList>('/game-analysis/games' + (selectedRef.current ? `?selected_game_id=${selectedRef.current}` : ''));
       if (!mounted.current || version !== listVersion.current) return;
       acceptSync(result.sync);
-      setGames(previous => revision === gamesRevision.current ? result.games : result.games.map(game => previous.find(item => item.id === game.id && item.analysis_id) || game));
+      setGames(previous => mergeFavorites(revision === gamesRevision.current ? result.games : result.games.map(game => previous.find(item => item.id === game.id && item.analysis_id) || game)));
     } catch (err) { if (mounted.current && version === listVersion.current) setError(errorText(err)); }
     finally { if (mounted.current && version === listVersion.current) { setLoadingGames(false); setGamesLoaded(true); } }
-  }, [acceptSync]);
+  }, [acceptSync, mergeFavorites]);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -154,12 +160,12 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     const id = analysisRef.current, gameId = selectedRef.current, revision = reportRevision.current, selection = selectionVersion.current, list = gamesRevision.current;
     try {
       const [result, current] = await Promise.all([
-        api<GameAnalysisList>('/game-analysis/games'),
+        api<GameAnalysisList>('/game-analysis/games' + (gameId ? `?selected_game_id=${gameId}` : '')),
         id === null ? Promise.resolve(null) : api<GameAnalysisReport>(`/game-analysis/${id}`),
       ]);
       if (!mounted.current) return;
       acceptSync(result.sync);
-      if (list === gamesRevision.current) setGames(result.games);
+      if (list === gamesRevision.current) setGames(mergeFavorites(result.games));
       if (current && selectedRef.current === gameId && analysisRef.current === id && revision === reportRevision.current && selection === selectionVersion.current) {
         setCurrentReport(current); updateGame(current, gameId!);
       } else if (id === null && selectedRef.current === gameId && selection === selectionVersion.current) {
@@ -194,8 +200,9 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   const percent = actionBusy === 'restart' ? 0 : completed ? 100 : report?.total_plies ? Math.min(99, Math.floor(report.cursor / report.total_plies * 100)) : 0;
   const retrying = !completed && report?.cursor === report?.total_plies && !!report?.retry_pending;
   const progressText = retrying ? `Уточняем оценки ходов: осталось ${report?.retry_pending}. Для них увеличено время анализа.` : `Проверено: ${report?.cursor || 0} из ${report?.total_plies || currentGame?.total_plies || 0} полуходов`;
-  const alerts = <>{error && <div className="error-notice" role="alert"><span>{error}</span><button aria-label="Закрыть ошибку анализа" onClick={() => setError('')}><X size={16} /></button></div>}{notice && <div className="analysis-notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button className="icon-button" aria-label="Закрыть уведомление анализа" onClick={() => setNotice('')}><X size={15} /></button></div>}</>;
+  const alerts = <>{(error || favoriteError) && <div className="error-notice" role="alert"><span>{error || favoriteError}</span><button aria-label="Закрыть ошибку анализа" onClick={() => { setError(''); clearFavoriteError(); }}><X size={16} /></button></div>}{notice && <div className="analysis-notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button className="icon-button" aria-label="Закрыть уведомление анализа" onClick={() => setNotice('')}><X size={15} /></button></div>}</>;
   const controls = <>{!report ? <button className="button primary" disabled={disabled} onClick={() => void startAnalysis()}>{actionBusy === 'start' ? <Spinner /> : <Play size={17} />}Анализировать партию</button> : running ? <button className="button secondary" disabled={disabled} onClick={pause}><Pause size={17} />Пауза</button> : !completed && !report.analysis_outdated ? <button className="button primary" disabled={disabled} onClick={() => resume(report.id, currentGame!.id)}>{stepBusy ? <Spinner /> : <Play size={17} />}Продолжить анализ</button> : null}{report && !running && <button className="button secondary" disabled={disabled} onClick={() => void startAnalysis(true)}>{actionBusy === 'restart' ? <Spinner /> : <RefreshCw size={16} />}Пересчитать партию</button>}</>;
+  const favoriteButton = (game: GameAnalysisSource) => <button type="button" className="icon-button analysis-favorite" aria-pressed={!!game.is_favorite} aria-label={`${game.is_favorite ? 'Убрать из избранного' : 'Добавить в избранное'}: ${game.white} — ${game.black}`} title={game.is_favorite ? 'Убрать из избранного' : 'Добавить в избранное'} disabled={savingFavorite(game)} onClick={() => void toggleFavorite(game)}>{savingFavorite(game) ? <Spinner /> : <Star size={21} fill={game.is_favorite ? 'currentColor' : 'none'} />}</button>;
   if (screen === 'list') return <section className="game-analysis-page analysis-list-screen">
     <div className="page-heading"><div><span className="eyebrow">ПОНЯТЬ СВОЮ ИГРУ</span><h1>Анализ партий</h1><p>Выберите партию. Каждый ход — на отдельном экране разбора.</p></div><span className="analysis-heading-icon"><Gauge size={28} /></span></div>
     <section className="panel analysis-sync-panel" aria-label="Синхронизация Chess.com">
@@ -212,13 +219,15 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     </section>
     <details className="panel analysis-import-disclosure"><summary>Загрузить архив за другой месяц</summary><form className="analysis-import" onSubmit={event => void importGames(event)}><p>Загрузка партий для ника, указанного выше.</p><div className="analysis-import-fields"><label>Месяц <span>необязательно</span><input type="month" value={month} onChange={event => setMonth(event.target.value)} min="2007-01" max={new Date().toISOString().slice(0, 7)} disabled={actionBusy !== null} /></label><label>Количество<input type="number" value={limit} onChange={event => setLimit(Number(event.target.value))} min="1" max="50" required disabled={actionBusy !== null} /></label><button className="button secondary" disabled={disabled || syncSending || !username.trim()}>{actionBusy === 'import' ? <Spinner /> : <Search size={16} />}{actionBusy === 'import' ? 'Загружаем…' : 'Загрузить партии'}</button></div></form></details>
     {alerts}
-    <section className="analysis-game-picker"><div className="panel-title"><h2>Ваши партии <span className="subtle-count">{games.length}</span></h2><button className="icon-button" aria-label="Обновить партии для анализа" title="Синхронизировать с Chess.com" disabled={loadingGames || syncSending || syncWaiting || syncCooldown > 0} onClick={() => { if (username.trim()) void synchronize(); else void loadGames(); }}>{loadingGames || syncSending || syncWaiting ? <Spinner /> : <RefreshCw size={18} />}</button></div>
-      <div className="analysis-game-options">{games.map(game => <Link key={game.id} href={`/analysis/${game.id}${game.analysis_status === 'completed' ? '/review' : ''}`} aria-label={`Открыть партию ${game.white} — ${game.black}`}><div className="analysis-game-card-heading"><span className="analysis-game-result">{game.result}</span><ArrowRight size={18} /></div><strong>{game.white}<span>— {game.black}</span></strong><small>{dateLabel(game.source_game_at || game.date)} · {game.total_plies} полуходов</small><span className={`analysis-list-state ${game.analysis_status === 'completed' ? 'ready' : ''}`}>{game.analysis_status === 'completed' ? 'Открыть разбор' : game.analysis_outdated ? 'Доступен пересчёт' : game.analysis_status === 'failed' ? 'Повторить анализ' : game.analysis_id != null ? game.background_requested ? 'Анализируем в фоне' : 'Продолжить анализ' : 'Анализировать'}</span></Link>)}</div>
-      {!games.length && <div className="panel analysis-placeholder"><Gauge size={32} /><h2>{loadingGames ? 'Загружаем партии…' : 'Пока нет партий'}</h2><p>Загрузите партии Chess.com по нику выше. Уже импортированные партии из раздела «Мои партии» тоже появятся здесь.</p></div>}
+    <section className="analysis-game-picker"><div className="panel-title"><h2>{favoritesOnly ? 'Избранные партии' : 'Ваши партии'} <span className="subtle-count">{displayedGames.length}</span></h2><button className="icon-button" aria-label="Обновить партии для анализа" title="Синхронизировать с Chess.com" disabled={loadingGames || syncSending || syncWaiting || syncCooldown > 0} onClick={() => { if (username.trim()) void synchronize(); else void loadGames(); }}>{loadingGames || syncSending || syncWaiting ? <Spinner /> : <RefreshCw size={18} />}</button></div>
+      <div className="analysis-list-filters" role="group" aria-label="Фильтр партий"><button className="button secondary" aria-pressed={!favoritesOnly} onClick={() => navigate('/analysis')}>Все партии</button><button className="button secondary" aria-label="Избранные" aria-pressed={favoritesOnly} onClick={() => navigate('/analysis?filter=favorites')}><Star size={16} />Избранные <span aria-hidden="true">{favoriteGames.length}</span></button></div>
+      <div className="analysis-game-options">{displayedGames.map(game => <article className="analysis-game-card" key={game.id}><Link href={`/analysis/${game.id}${game.analysis_status === 'completed' ? '/review' : ''}${filterQuery}`} aria-label={`Открыть партию ${game.white} — ${game.black}`}><div className="analysis-game-card-heading"><span className="analysis-game-result">{game.result}</span></div><strong>{game.white}<span>— {game.black}</span></strong><small>{dateLabel(game.source_game_at || game.date)} · {game.total_plies} полуходов</small><span className={`analysis-list-state ${game.analysis_status === 'completed' ? 'ready' : ''}`}>{game.analysis_status === 'completed' ? 'Открыть разбор' : game.analysis_outdated ? 'Доступен пересчёт' : game.analysis_status === 'failed' ? 'Повторить анализ' : game.analysis_id != null ? game.background_requested ? 'Анализируем в фоне' : 'Продолжить анализ' : 'Анализировать'}<ArrowRight size={18} /></span></Link>{favoriteButton(game)}</article>)}</div>
+      {favoritesOnly && !displayedGames.length && <div className="panel analysis-placeholder"><Star size={32} /><h2>{loadingGames ? 'Загружаем избранное…' : 'Пока нет избранных партий'}</h2><p>Нажмите звёздочку рядом с партией или на экране разбора, чтобы вернуться к ней позже.</p><button className="button secondary" onClick={() => navigate('/analysis')}>Показать все партии</button></div>}
+      {!favoritesOnly && !games.length && <div className="panel analysis-placeholder"><Gauge size={32} /><h2>{loadingGames ? 'Загружаем партии…' : 'Пока нет партий'}</h2><p>Загрузите партии Chess.com по нику выше. Уже импортированные партии из раздела «Мои партии» тоже появятся здесь.</p></div>}
     </section>
   </section>;
   return <section className={`game-analysis-page analysis-focused analysis-${screen}-screen`}>
-    <div className="analysis-screen-toolbar"><button ref={backButton} className="text-button" onClick={() => openScreen('list')}><ArrowLeft size={18} />К партиям</button><span>{screen === 'review' ? 'Разбор партии' : 'Анализ партии'}</span><SoundToggle /></div>
+    <div className="analysis-screen-toolbar"><button ref={backButton} className="text-button" onClick={() => openScreen('list')}><ArrowLeft size={18} />К партиям</button><span>{screen === 'review' ? 'Разбор партии' : 'Анализ партии'}</span><div className="analysis-toolbar-actions">{currentGame && favoriteButton(currentGame)}<SoundToggle /></div></div>
     {alerts}
     {report?.analysis_outdated && <p className="analysis-notice">Сохранён разбор предыдущей версии. Нажмите «Пересчитать партию», чтобы проверить её Stockfish 19 с увеличенным временем анализа.</p>}
     {loadingReport || (!currentGame && (!gamesLoaded || loadingGames)) || (currentGame?.analysis_id != null && !report && !reportLoadFailed) ? <div className="panel analysis-placeholder" aria-busy="true"><Spinner /><p>Открываем анализ…</p></div> : !currentGame ? <div className="panel analysis-placeholder"><p>Не удалось найти выбранную партию. Вернитесь к списку и обновите его.</p><button className="button secondary" onClick={() => void loadGames()}>Повторить загрузку</button></div> : currentGame.analysis_id !== null && !report ? <div className="panel analysis-placeholder"><p>Не удалось загрузить сохранённый анализ.</p><button className="button secondary" onClick={() => void loadReport(currentGame)}>Повторить загрузку</button></div> : screen === 'progress' ? <section className="analysis-progress-card panel" aria-label="Ход анализа">

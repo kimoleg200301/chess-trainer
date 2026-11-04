@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Annotated
 
 import chess
 import chess.engine
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import Field
-from sqlalchemy import DateTime, case, cast, func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import DateTime, case, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -16,7 +18,7 @@ from .background import BackgroundStart, request_background
 from .db import get_db
 from .engine_resources import engine_slots
 from .game_sources import chesscom_accuracies, safe_game_url, source_game_time
-from .models import GameAnalysis, ImportedGame, ImportJob, User, now
+from .models import GameAnalysis, GameFavorite, ImportedGame, ImportJob, User, now
 from .security import current_user
 from .chesscom_sync import SyncRequest, get_sync, request_sync
 
@@ -135,11 +137,15 @@ def analysis_view(analysis: GameAnalysis, game: ImportedGame, job: ImportJob) ->
 
 
 @router.get("/games")
-def list_games(db: Session = Depends(get_db), user: User = Depends(current_user)):
+def list_games(db: Session = Depends(get_db), user: User = Depends(current_user),
+               selected_game_id: Annotated[int | None, Query(gt=0)] = None):
     # One current owned import represents each real game even when monthly
     # batches overlap. Window ranking works with SQLAlchemy 2.0 and newer.
+    rank_order = [ImportedGame.id.desc()]
+    if selected_game_id is not None:
+        rank_order.insert(0, (ImportedGame.id == selected_game_id).desc())
     ranked = (select(ImportedGame.id, func.row_number().over(
-                    partition_by=ImportedGame.fingerprint, order_by=ImportedGame.id.desc()).label("rank"))
+                    partition_by=ImportedGame.fingerprint, order_by=rank_order).label("rank"))
               .join(ImportJob, ImportJob.id == ImportedGame.job_id)
               .where(ImportJob.user_id == user.id, ImportJob.source == "chesscom").subquery())
     latest_ids = select(ranked.c.id).where(ranked.c.rank == 1)
@@ -154,16 +160,50 @@ def list_games(db: Session = Depends(get_db), user: User = Depends(current_user)
         case((func.pg_input_is_valid(stamp, "timestamp with time zone"), cast(stamp, timestamp_type))),
         case((func.pg_input_is_valid(legacy_date, "timestamp with time zone"), cast(legacy_date, timestamp_type))),
     )
+    recent_ids = (select(ImportedGame.id).where(ImportedGame.id.in_(latest_ids))
+                  .order_by(game_time.desc().nulls_last(), ImportedGame.id.desc()).limit(MAX_LIST_GAMES))
+    favorites = {row.fingerprint: row for row in db.scalars(select(GameFavorite).where(GameFavorite.user_id == user.id))}
+    saved_keys = [key for key, value in favorites.items() if value.is_favorite]
+    # Saved games remain accessible when they fall outside the recent-game cap.
+    # Keep a directly opened game available even after it is unstarred.
     rows = db.execute(select(ImportedGame, ImportJob).join(ImportJob, ImportJob.id == ImportedGame.job_id)
-                      .where(ImportedGame.id.in_(latest_ids))
-                      .order_by(game_time.desc().nulls_last(), ImportedGame.id.desc()).limit(MAX_LIST_GAMES)).all()
+                      .where(ImportedGame.id.in_(latest_ids), or_(ImportedGame.id.in_(recent_ids),
+                             ImportedGame.fingerprint.in_(saved_keys), ImportedGame.id == selected_game_id))
+                      .order_by(game_time.desc().nulls_last(), ImportedGame.id.desc())).all()
     fingerprints = [game.fingerprint for game, _ in rows]
     analyses = {analysis.fingerprint: analysis for analysis in db.scalars(select(GameAnalysis).where(
         GameAnalysis.user_id == user.id, GameAnalysis.fingerprint.in_(fingerprints)))}
-    games = [game_view(game, job, analyses.get(game.fingerprint)) for game, job in rows]
+    games = [{**game_view(game, job, analyses.get(game.fingerprint)),
+              **favorite_view(game, favorites.get(game.fingerprint))} for game, job in rows]
     floor = datetime.min.replace(tzinfo=timezone.utc)
     games.sort(key=lambda game: (game["source_game_at"] or floor, game["id"]), reverse=True)
     return {"games": games, "sync": get_sync(db, user.id)}
+
+
+def favorite_view(game: ImportedGame, record: GameFavorite | None) -> dict:
+    return {"favorite_key": game.fingerprint, "is_favorite": bool(record and record.is_favorite),
+            "favorite_revision": record.revision if record else 0}
+
+
+class SetFavorite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_favorite: bool = Field(strict=True)
+
+
+@router.post("/games/{game_id}/favorite")
+def set_favorite(game_id: int, body: SetFavorite, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    game, _ = owned_game(db, game_id, user.id)
+    statement = insert(GameFavorite).values(user_id=user.id, fingerprint=game.fingerprint,
+                                             is_favorite=body.is_favorite, revision=1)
+    statement = statement.on_conflict_do_update(
+        index_elements=[GameFavorite.user_id, GameFavorite.fingerprint],
+        set_={"is_favorite": body.is_favorite,
+              "revision": case((GameFavorite.is_favorite != body.is_favorite, GameFavorite.revision + 1),
+                               else_=GameFavorite.revision)})
+    db.execute(statement)
+    db.commit()
+    record = db.get(GameFavorite, (user.id, game.fingerprint), populate_existing=True)
+    return {"game_id": game.id, **favorite_view(game, record)}
 
 
 @router.post("/sync")

@@ -81,7 +81,8 @@ export type ChessComSyncState = {
   next_sync_at: string | null; added_games: number; checked_games: number; error: string | null;
 };
 export type GameAnalysisList = { games: GameAnalysisSource[]; sync?: ChessComSyncState | null };
-export type GameAnalysisSource = {
+export type GameFavoriteState = { favorite_key: string; is_favorite: boolean; favorite_revision: number };
+export type GameAnalysisSource = Partial<GameFavoriteState> & {
   background_requested: boolean;
   id: number; white: string; black: string; result: string; date: string;
   game_url: string; source_game_at: string | null; username: string | null; total_plies: number;
