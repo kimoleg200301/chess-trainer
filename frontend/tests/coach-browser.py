@@ -4,8 +4,10 @@ Run Vite on 5174, then: python3 frontend/tests/coach-browser.py
 Requires Python Playwright and Chromium. No real account data is changed.
 """
 from copy import deepcopy
+import json
 import os
 import re
+import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,8 +16,18 @@ from playwright.sync_api import sync_playwright, expect
 BASE = os.environ.get('TEST_FRONTEND_URL', 'http://127.0.0.1:5174')
 FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'
-E5 = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2'
-NF3 = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2'
+# Validate a realistic 20-ply principal variation with the same installed chess
+# library as the app, retaining legal SAN and FEN at every replay step.
+LONG_SOLUTION = json.loads(subprocess.check_output([
+    'node', '--input-type=module', '-e', '''
+      import { Chess } from 'chess.js';
+      const board = new Chess();
+      const line = 'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3 e8g8 h2h3 c6b8 d2d4 b8d7'.split(' ');
+      console.log(JSON.stringify(line.map(uci => {
+        const move = board.move({from: uci.slice(0, 2), to: uci.slice(2, 4)});
+        return {uci, san: move.san, fen: board.fen()};
+      })));
+    '''], cwd=Path(__file__).resolve().parents[1], text=True))
 IDS = ['hanging_piece', 'fork', 'pin', 'mate', 'king_safety', 'defense', 'conversion', 'opening', 'endgame', 'time_management', 'calculation']
 TITLES = ['Безопасность фигур', 'Вилки', 'Связки', 'Матовые угрозы', 'Безопасность короля', 'Защита', 'Реализация перевеса', 'Дебют', 'Эндшпиль', 'Управление временем', 'Расчёт вариантов']
 
@@ -106,11 +118,11 @@ def check(browser, width, height):
                 assert body['move'] == 'e2e4', body
                 attempt.update(status='completed', fen=E4, last_move='e2e4', ply_index=1,
                                elapsed_ms=body['elapsed_ms'], feedback='Ход принят. Разбери продолжение.')
-                attempt['solution'] = dict(initial_fen=FEN, moves=[dict(uci='e2e4', san='e4', fen=E4), dict(uci='e7e5', san='e5', fen=E5), dict(uci='g1f3', san='Nf3', fen=NF3)], explanation='Проверь каждый шах и каждое взятие. ' * 30)
+                attempt['solution'] = dict(initial_fen=FEN, moves=deepcopy(LONG_SOLUTION), explanation='Проверь каждый шах и каждое взятие. ' * 30)
                 data['active_attempt_id'] = None
                 result = dict(accepted=True, attempt=attempt, feedback=attempt['feedback'])
             elif path.endswith('/reveal'):
-                attempt.update(status='revealed', solution=dict(initial_fen=FEN, moves=[dict(uci='e2e4', san='e4', fen=E4)], explanation='Сначала проверь безопасность своего короля. ' * 30))
+                attempt.update(status='revealed', solution=dict(initial_fen=FEN, moves=deepcopy(LONG_SOLUTION), explanation='Сначала проверь безопасность своего короля. ' * 30))
                 data['active_attempt_id'] = None
                 result = attempt
             else: result = attempt
@@ -123,15 +135,51 @@ def check(browser, width, height):
           const c = document.querySelector('.coach-session-actions').getBoundingClientRect();
           const t = document.querySelector('.coach-lesson-text').getBoundingClientRect();
           return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth,
-            scrollHeight: document.documentElement.scrollHeight, board: {top:b.top,bottom:b.bottom,left:b.left,right:b.right},
-            actions: {top:c.top,bottom:c.bottom}, text:{top:t.top,bottom:t.bottom,height:t.height} };
+            scrollHeight: document.documentElement.scrollHeight, scrollX,
+            board: {top:b.top,bottom:b.bottom,left:b.left,right:b.right,width:b.width},
+            actions: {top:c.top,bottom:c.bottom,left:c.left,right:c.right},
+            buttons: [...document.querySelectorAll('.coach-session-actions button')].map(button => {
+              const r = button.getBoundingClientRect(); return {left:r.left,right:r.right};
+            }), text:{top:t.top,bottom:t.bottom,height:t.height} };
         }''')
         assert metrics['scrollWidth'] <= width, (stage, metrics)
         assert metrics['scrollHeight'] <= height + 2, (stage, metrics)
+        assert metrics['scrollX'] == 0, (stage, metrics)
         assert metrics['board']['top'] >= 0 and metrics['board']['bottom'] <= metrics['actions']['top'], (stage, metrics)
+        assert metrics['board']['left'] >= 0 and metrics['board']['right'] <= width + 1, (stage, metrics)
+        assert metrics['actions']['left'] >= 0 and metrics['actions']['right'] <= width + 1, (stage, metrics)
         assert metrics['actions']['bottom'] <= height + 2, (stage, metrics)
+        assert all(button['left'] >= 0 and button['right'] <= width + 1 for button in metrics['buttons']), (stage, metrics)
         assert metrics['text']['height'] >= 18, (stage, metrics)
         return metrics
+
+    def assert_board_unchanged(stage, initial):
+        current = assert_fits(stage)
+        # Short phones intentionally use a smaller review board. On tall phones
+        # the successful move must not alter its horizontal size or placement.
+        if width in (390, 412) and height > 700:
+            for attribute in ('left', 'width'):
+                assert abs(current['board'][attribute] - initial['board'][attribute]) <= 1, (stage, initial, current)
+
+    def select_last_solution_move(stage, initial):
+        moves = page.locator('.coach-solution-moves')
+        expect(moves.locator('button')).to_have_count(len(LONG_SOLUTION))
+        dimensions = moves.evaluate('(e) => ({width:e.clientWidth,scrollWidth:e.scrollWidth,height:e.clientHeight,scrollHeight:e.scrollHeight})')
+        assert dimensions['scrollWidth'] > dimensions['width'] or dimensions['scrollHeight'] > dimensions['height'], (stage, dimensions)
+        last = moves.locator('button').last
+        last.scroll_into_view_if_needed()
+        bounds = moves.evaluate('''e => {
+          const container = e.getBoundingClientRect(), last = e.lastElementChild.getBoundingClientRect();
+          return {left:container.left,right:container.right,top:container.top,bottom:container.bottom,
+            lastLeft:last.left,lastRight:last.right,lastTop:last.top,lastBottom:last.bottom,
+            scrollLeft:e.scrollLeft,scrollTop:e.scrollTop};
+        }''')
+        assert bounds['scrollLeft'] > 0 or bounds['scrollTop'] > 0, (stage, bounds)
+        assert bounds['lastLeft'] >= bounds['left'] - 1 and bounds['lastRight'] <= bounds['right'] + 1, (stage, bounds)
+        assert bounds['lastTop'] >= bounds['top'] - 1 and bounds['lastBottom'] <= bounds['bottom'] + 1, (stage, bounds)
+        last.click()
+        expect(page.locator('.coach-solution-label')).to_contain_text(f'{len(LONG_SOLUTION)} / {len(LONG_SOLUTION)}')
+        assert_board_unchanged(stage, initial)
 
     page.route('**/api/**', respond)
     page.route('https://fonts.googleapis.com/**', lambda route: route.abort())
@@ -160,7 +208,7 @@ def check(browser, width, height):
     page.get_by_role('button', name='Тренировать навык', exact=True).click()
     expect(page.get_by_role('region', name='Занятие с личным тренером')).to_be_visible()
     assert posts[-1][0] == '/coach/practice' and posts[-1][1] == {'skill_id': 'time_management'}
-    assert_fits('active')
+    initial_board = assert_fits('active')
     if screenshot_dir:
         page.screenshot(path=str(Path(screenshot_dir) / f'coach-active-{width}x{height}.png'))
     page.get_by_role('button', name='Подсказка', exact=True).click()
@@ -171,11 +219,15 @@ def check(browser, width, height):
     assert_fits('network-error')
     page.locator('.coach-session [data-square="e2"]').click(); page.locator('.coach-session [data-square="e4"]').click()
     expect(page.get_by_role('heading', name='Сохрани эту идею', exact=True)).to_be_visible()
-    assert_fits('completed-long-explanation')
+    assert_board_unchanged('completed-long-pv', initial_board)
     page.get_by_role('button', name='Предыдущий ход', exact=True).click()
-    expect(page.locator('.coach-solution-label')).to_contain_text('0 / 3')
+    expect(page.locator('.coach-solution-label')).to_contain_text(f'0 / {len(LONG_SOLUTION)}')
+    select_last_solution_move('completed-scroll-to-last-move', initial_board)
+    page.get_by_role('button', name='Предыдущий ход', exact=True).click()
+    expect(page.locator('.coach-solution-label')).to_contain_text(f'{len(LONG_SOLUTION) - 1} / {len(LONG_SOLUTION)}')
     page.get_by_role('button', name='Воспроизвести решение', exact=True).click()
-    expect(page.locator('.coach-solution-label')).to_contain_text('3 / 3')
+    expect(page.locator('.coach-solution-label')).to_contain_text(f'{len(LONG_SOLUTION)} / {len(LONG_SOLUTION)}')
+    assert_board_unchanged('completed-long-pv-replay', initial_board)
     screenshot_dir = os.environ.get('COACH_SCREENSHOT_DIR')
     if screenshot_dir:
         Path(screenshot_dir).mkdir(parents=True, exist_ok=True)
@@ -200,7 +252,8 @@ def check(browser, width, height):
     assert attempt['id'] == current_id
     page.get_by_role('button', name='Разобрать', exact=True).click()
     expect(page.get_by_role('heading', name='Пойми продолжение', exact=True)).to_be_visible()
-    assert_fits('revealed-long-explanation')
+    assert_board_unchanged('revealed-long-pv', initial_board)
+    select_last_solution_move('revealed-scroll-to-last-move', initial_board)
     page.get_by_role('button', name='К плану', exact=True).click()
     data['profile']['syncing'] = True
     page.get_by_role('button', name='Пауза', exact=True).click()
@@ -233,7 +286,7 @@ def check(browser, width, height):
     expect(page.get_by_role('button', name='Повторить анализ', exact=True)).to_be_visible()
     assert not errors, errors
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    print(f'PASS {width}x{height}: setup, tracking, 11 skills, timeout evidence, moves/retry, replay, viewport, persisted resume, pause, pagination')
+    print(f'PASS {width}x{height}: setup, tracking, 11 skills, timeout evidence, moves/retry, legal 20-ply solution/reveal/replay, internal scroll, viewport, persisted resume, pause, pagination')
     context.close()
 
 
@@ -390,6 +443,6 @@ if __name__ == '__main__':
                                     args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
         check_autosave_actions(browser)
         if os.environ.get('COACH_AUTOSAVE_ONLY') != '1':
-            for viewport in [(390, 844), (360, 640), (1280, 900), (740, 390)]:
+            for viewport in [(390, 844), (360, 640), (412, 915), (1280, 900), (740, 390)]:
                 check(browser, *viewport)
         browser.close()

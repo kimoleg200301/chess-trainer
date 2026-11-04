@@ -170,11 +170,11 @@
 
 /* A lesson is one viewport: only long feedback scrolls, controls stay visible. */
 .app-shell.coach-practice-shell .main-content { padding: 0; min-height: 0; height: 100dvh; max-width: none; overflow: hidden; }
-.coach-session { height: 100dvh; max-width: 1200px; margin: 0 auto; display: grid; grid-template-rows: 55px minmax(0,1fr) 78px; padding-top: env(safe-area-inset-top,0px); }
+.coach-session { height: 100dvh; max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: 55px minmax(0,1fr) 78px; padding-top: env(safe-area-inset-top,0px); }
 .coach-session-toolbar { display: flex; align-items: center; gap: 16px; padding: 4px 24px; min-width: 0; }
 .coach-session-toolbar > .text-button { min-height: 44px; flex-shrink: 0; gap: 7px; }
 .coach-session-topic { flex: 1; text-align: center; font-size: 12px; font-weight: 550; color: #506947; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.coach-session-layout { min-height: 0; display: grid; grid-template-columns: minmax(0,1.4fr) minmax(260px,.8fr); gap: 26px; align-items: start; padding: 9px 24px 16px; }
+.coach-session-layout { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0,1.4fr) minmax(260px,.8fr); gap: 26px; align-items: start; padding: 9px 24px 16px; }
 .coach-session-board-column { min-height: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
 .coach-board-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 37px; margin-bottom: 8px; width: 100%; max-width: 630px; color: #62775a; font-size: 11px; }
 .coach-board-meta > span { display: flex; align-items: center; gap: 6px; }
@@ -183,7 +183,7 @@
 .coach-board-wrap .board-frame { border-width: 5px; }
 .coach-board-done .board-frame { box-shadow: 0 0 0 2px #a8c38d,0 8px 25px #243b270b; }
 .coach-session-underboard { display: flex; justify-content: space-between; gap: 10px; color: #65765e; font-size: 10px; min-height: 28px; align-items: center; width: 100%; max-width: 630px; }
-.coach-session-instruction { margin-top: 45px; align-self: stretch; display: flex; flex-direction: column; min-height: 0; padding: 20px; background: #fff; border: 1px solid #e1e7d9; border-radius: 13px; max-height: calc(100dvh - 245px); }
+.coach-session-instruction { margin-top: 45px; align-self: stretch; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px; background: #fff; border: 1px solid #e1e7d9; border-radius: 13px; max-height: calc(100dvh - 245px); }
 .coach-session-instruction.wrong { border-color: #e4cda8; }
 .coach-session-instruction.success { border-color: #c9deb8; }
 .coach-lesson-heading { display: flex; align-items: center; gap: 11px; margin-bottom: 18px; flex-shrink: 0; }
@@ -198,9 +198,10 @@
 .coach-time-warning { color: #966c3d; font-size: 10px; }
 .coach-session-detail { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 10px; color: #6c7f60; line-height: 1.7; border-top: 1px solid #e9ede1; margin-top: 17px; padding-top: 13px; flex-shrink: 0; }
 .coach-session-detail a { display: flex; padding: 6px; color: #678454; }
-.coach-solution { padding-top: 14px; flex-shrink: 0; }
+/* Keep a long unwrapped variation inside its own scroller, not the lesson's intrinsic width. */
+.coach-solution { min-width: 0; max-width: 100%; padding-top: 14px; flex-shrink: 0; }
 .coach-solution-label { display: flex; justify-content: space-between; font-size: 10px; color: #6a7b60; margin-bottom: 8px; }
-.coach-solution-moves { display: flex; align-content: flex-start; gap: 6px; flex-wrap: wrap; max-height: 92px; overflow: auto; scrollbar-width: thin; padding: 2px; }
+.coach-solution-moves { min-width: 0; max-width: 100%; display: flex; align-content: flex-start; gap: 6px; flex-wrap: wrap; max-height: 92px; overflow: auto; scrollbar-width: thin; padding: 2px; }
 .coach-solution-moves > button { min-width: 38px; min-height: 33px; font-size: 12px; background: #f0f4e8; color: #4c693d; border: 1px solid #e1e8d7; border-radius: 6px; padding: 6px 8px; }
 .coach-solution-moves > button.current { background: #dae9c7; border-color: #9fba86; color: #36552c; }
 .coach-session-actions { border-top: 1px solid #e0e7d7; background: #f7f8f3f5; padding: 12px 24px max(12px,env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: center; box-shadow: 0 -6px 24px #3a502204; z-index: 6; }
