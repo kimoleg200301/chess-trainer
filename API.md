@@ -75,13 +75,26 @@ Identical imports reopen the stored job. Overlapping batches can reuse completed
 
 ## Independent whole-game analysis
 
-The **Анализ** screen uses the existing Chess.com import endpoint to load games, then these separate routes to assess every ply for both players. It does not request tactic-generation steps or create puzzles. All routes are authenticated and user-scoped; POST requests use the existing same-origin checks.
+The **Анализ** screen synchronizes recent Chess.com games and retains the existing import endpoint for a selected historical month, then uses separate routes to assess every ply for both players. Sync does not start whole-game analysis or tactical generation. All routes are authenticated and user-scoped; POST requests use the existing same-origin checks.
 
-- `GET /api/game-analysis/games` -> `{games:GameAnalysisSource[]}`. Up to 200 unique owned Chess.com games, newest actual game date first, with import ID as a fallback. Overlapping imports share one list entry and one report per user and game fingerprint.
+- `GET /api/game-analysis/games` -> `{games:GameAnalysisSource[],sync:ChessComSyncState}`. Up to 200 unique owned Chess.com games, newest actual game date first, with import ID as a fallback. Overlapping imports share one list entry and one report per user and game fingerprint. This GET only reads stored data.
+- `POST /api/game-analysis/sync` `{username:string,automatic?:boolean}` -> ChessComSyncState. Trims and lowercases the nickname, saves it to the caller's account and durably queues synchronization; no Chess.com request is made in this handler. Repeated requests for a pending nickname are idempotent. Minimum interval is 30 seconds for manual requests and five minutes for `automatic:true`; a request within this interval returns the current state. Changing the nickname invalidates an older in-flight result without removing stored games. Username validation, authentication and Origin checks match the import routes.
 - `POST /api/game-analysis` `{game_id:number}` -> GameAnalysisReport. Starts a report or returns the existing one, including a completed report. `game_id` must belong to the caller's Chess.com imports.
 - `GET /api/game-analysis/{id}` -> GameAnalysisReport.
-- `POST /api/game-analysis/{id}/step` `{}` -> GameAnalysisReport. Checks one ply, stores its result and advances the cursor atomically. Stockfish shares the existing engine semaphore, with one thread, 32 MiB hash and an eight-second position budget. Completed reports return unchanged. Concurrent processing returns 409; busy or unavailable engine returns 503. Previous checkpoints survive an engine failure and can be resumed. An outdated analysis version returns 409 and requires a restart.
+- `POST /api/game-analysis/{id}/step` `{}` -> GameAnalysisReport. Checks one ply, stores its result and advances the cursor atomically. Stockfish 19 shares the existing engine semaphore, with two threads, 256 MiB hash, up to 2,000,000 nodes / three seconds per search and a 30-second position budget. Unassessed moves receive one separate checkpoint with up to 4,000,000 nodes / six seconds per search and 45 seconds per position. Completed reports with no pending retry return unchanged. Concurrent processing returns 409; busy or unavailable engine returns 503. Previous checkpoints survive an engine failure and can be resumed. An outdated analysis version returns 409 and requires a restart.
 - `POST /api/game-analysis/{id}/restart` `{}` -> GameAnalysisReport. Clears only this report and resets it to the current version. Imported games, tactical puzzles and training history remain intact.
+
+ChessComSyncState:
+```
+{username:string|null,status:"idle"|"ready"|"running"|"completed"|"failed",
+ revision:number,background_requested:boolean,requested_at:string|null,
+ last_synced_at:string|null,next_sync_at:string|null,
+ added_games:number,checked_games:number,error:string|null}
+```
+
+The shared server worker downloads up to 200 completed standard games from the two newest available archive months. It deduplicates owned Chess.com games by fingerprint and canonical game URL, appending only missing games to monthly sync batches. Existing reports, cursors, exercises, ratings and coach baselines are retained. The 100-batch cap still applies; an error rolls back all additions from that sync. Source errors retain the nickname and previous games, with a readable `failed` state. Queued work survives browser closure and server restart. The visible analysis list requests automatic sync on entry, every five minutes, and on return/connection recovery when due; no new periodic analysis-list requests are scheduled while the browser is closed. Chess.com archive publication may lag actual play.
+
+Successful `/api/imports/chesscom` also remembers its nickname. Migration `0009_chesscom_sync` initializes existing accounts from their latest valid Chess.com import, falling back to the personal coach nickname. It queues no work and changes no existing report or coach data. Sync settings and imported games are part of a full PostgreSQL backup, not the training-progress JSON export.
 
 GameAnalysisSource:
 ```

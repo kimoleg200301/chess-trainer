@@ -75,6 +75,12 @@ export async function api<T>(path: string, body?: unknown, method?: string, opti
 
 
 export type GameMoveCategory = 'brilliant' | 'great' | 'best' | 'excellent' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' | 'forced' | 'unassessed';
+export type ChessComSyncState = {
+  username: string | null; revision: number; status: 'idle' | 'ready' | 'running' | 'completed' | 'failed';
+  background_requested: boolean; requested_at: string | null; last_synced_at: string | null;
+  next_sync_at: string | null; added_games: number; checked_games: number; error: string | null;
+};
+export type GameAnalysisList = { games: GameAnalysisSource[]; sync?: ChessComSyncState | null };
 export type GameAnalysisSource = {
   background_requested: boolean;
   id: number; white: string; black: string; result: string; date: string;

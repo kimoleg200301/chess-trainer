@@ -18,6 +18,7 @@ from .engine_resources import engine_slots
 from .game_sources import safe_game_url, source_game_time
 from .models import GameAnalysis, ImportedGame, ImportJob, User, now
 from .security import current_user
+from .chesscom_sync import SyncRequest, get_sync, request_sync
 
 router = APIRouter(prefix="/api/game-analysis")
 ANALYSIS_VERSION = 2  # Stockfish 19 with the deeper default review budget.
@@ -149,7 +150,12 @@ def list_games(db: Session = Depends(get_db), user: User = Depends(current_user)
     games = [game_view(game, job, analyses.get(game.fingerprint)) for game, job in rows]
     floor = datetime.min.replace(tzinfo=timezone.utc)
     games.sort(key=lambda game: (game["source_game_at"] or floor, game["id"]), reverse=True)
-    return {"games": games}
+    return {"games": games, "sync": get_sync(db, user.id)}
+
+
+@router.post("/sync")
+def sync_games(body: SyncRequest, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return request_sync(db, user, body)
 
 
 @router.post("")

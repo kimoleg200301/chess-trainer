@@ -139,7 +139,7 @@ def chesscom_metadata(game: dict, item: dict, username: str) -> dict:
     return result
 
 
-def chesscom_games(username: str, month: str | None, limit: int) -> tuple[str, list[dict]]:
+def chesscom_games(username: str, month: str | None, limit: int, *, allow_empty: bool = False) -> tuple[str, list[dict]]:
     """Return the latest selected completed standard games, without parsing unrelated PGNs."""
     from .generation import parse_games
     username = username.lower()
@@ -175,6 +175,6 @@ def chesscom_games(username: str, month: str | None, limit: int) -> tuple[str, l
         games.append(chesscom_metadata(game, item, username))
         if len(games) >= limit:
             break
-    if not games:
+    if not games and not allow_empty:
         raise HTTPException(404, "В этом месяце нет подходящих завершённых партий в обычные шахматы.")
     return month, games

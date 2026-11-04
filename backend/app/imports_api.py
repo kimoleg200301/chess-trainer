@@ -257,6 +257,8 @@ def list_imports(db: Session = Depends(get_db), user: User = Depends(current_use
 def import_chesscom(body: ChessComImportBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     month, games = chesscom_games(body.username, body.month, body.limit)
     job = create_job(db, user, "chesscom", games, body.username, month)
+    from .chesscom_sync import remember_username
+    remember_username(db, user.id, body.username)
     if body.background and job.analysis_version == ANALYSIS_VERSION:
         request_background(db, job, ANALYSIS_VERSION, True)
     return job_view(db, job)

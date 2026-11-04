@@ -4,11 +4,12 @@ import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, Gauge, LoaderCircle,
 import { api } from './api';
 import { Link, navigate, useRoute } from './router';
 import { useBackgroundRefresh } from './useBackgroundRefresh';
+import { useChessComSync } from './useChessComSync';
 import AnalysisReview from './AnalysisReview';
 import SoundToggle from './SoundToggle';
 import { playSound } from './sound';
 import { categories } from './analysisCategories';
-import type { GameAnalysisReport, GameAnalysisSource, GameSideSummary, ImportJob } from './api';
+import type { GameAnalysisList, GameAnalysisReport, GameAnalysisSource, GameSideSummary, ImportJob } from './api';
 import './game-analysis.css';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Не удалось выполнить запрос. Попробуйте ещё раз.';
@@ -43,7 +44,8 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   }, []);
   useEffect(() => { onFocusChange?.(screen !== 'list'); }, [screen, onFocusChange]);
   useEffect(() => { if (visible) { window.scrollTo({ top: 0, behavior: 'instant' }); backButton.current?.focus({ preventScroll: true }); } }, [screen, visible]);
-  const [username, setUsername] = useState(''), [month, setMonth] = useState(''), [limit, setLimit] = useState(10);
+  const [month, setMonth] = useState(''), [limit, setLimit] = useState(10);
+  const { username, setUsername, confirmUsername, state: sync, sending: syncSending, error: syncError, acceptSync, synchronize, waiting: syncWaiting, cooldown: syncCooldown } = useChessComSync(visible && screen === 'list', onDataChanged);
   const [games, setGames] = useState<GameAnalysisSource[]>([]);
   const [loadedReport, setReport] = useState<{ gameId: number; value: GameAnalysisReport } | null>(null), [selectedPly, setSelectedPly] = useState<number | null>(null);
   const report = loadedReport?.gameId === selectedGame ? loadedReport.value : null;
@@ -113,12 +115,13 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   const loadGames = useCallback(async () => {
     const version = ++listVersion.current, revision = gamesRevision.current; setLoadingGames(true);
     try {
-      const result = await api<{ games: GameAnalysisSource[] }>('/game-analysis/games');
+      const result = await api<GameAnalysisList>('/game-analysis/games');
       if (!mounted.current || version !== listVersion.current) return;
+      acceptSync(result.sync);
       setGames(previous => revision === gamesRevision.current ? result.games : result.games.map(game => previous.find(item => item.id === game.id && item.analysis_id) || game));
     } catch (err) { if (mounted.current && version === listVersion.current) setError(errorText(err)); }
     finally { if (mounted.current && version === listVersion.current) { setLoadingGames(false); setGamesLoaded(true); } }
-  }, []);
+  }, [acceptSync]);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -141,10 +144,11 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
     const id = analysisRef.current, gameId = selectedRef.current, revision = reportRevision.current, selection = selectionVersion.current, list = gamesRevision.current;
     try {
       const [result, current] = await Promise.all([
-        api<{ games: GameAnalysisSource[] }>('/game-analysis/games'),
+        api<GameAnalysisList>('/game-analysis/games'),
         id === null ? Promise.resolve(null) : api<GameAnalysisReport>(`/game-analysis/${id}`),
       ]);
       if (!mounted.current) return;
+      acceptSync(result.sync);
       if (list === gamesRevision.current) setGames(result.games);
       if (current && selectedRef.current === gameId && analysisRef.current === id && revision === reportRevision.current && selection === selectionVersion.current) {
         setCurrentReport(current); updateGame(current, gameId!);
@@ -157,7 +161,7 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   async function importGames(event: FormEvent) {
     event.preventDefault(); if (actionFlight.current || stepFlight.current) return;
     actionFlight.current = true; reportRevision.current++; gamesRevision.current++; setActionBusy('import'); setError(''); setNotice('');
-    try { await api<ImportJob>('/imports/chesscom', { username: username.trim(), month: month || null, limit }); if (!mounted.current) return; changedRef.current?.(); await loadGames(); if (mounted.current) setNotice('Партии загружены. Выберите нужную и запустите отдельный анализ ходов.'); }
+    try { const imported = await api<ImportJob>('/imports/chesscom', { username: username.trim(), month: month || null, limit }); if (!mounted.current) return; confirmUsername(imported.username || username.trim()); changedRef.current?.(); await loadGames(); if (mounted.current) setNotice('Партии загружены. Выберите нужную и запустите отдельный анализ ходов.'); }
     catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { actionFlight.current = false; if (mounted.current) setActionBusy(null); }
   }
@@ -183,9 +187,21 @@ export default function GameAnalysis({ visible, onDataChanged, onFocusChange }: 
   const controls = <>{!report ? <button className="button primary" disabled={disabled} onClick={() => void startAnalysis()}>{actionBusy === 'start' ? <Spinner /> : <Play size={17} />}Анализировать партию</button> : running ? <button className="button secondary" disabled={disabled} onClick={pause}><Pause size={17} />Пауза</button> : !completed && !report.analysis_outdated ? <button className="button primary" disabled={disabled} onClick={() => resume(report.id, currentGame!.id)}>{stepBusy ? <Spinner /> : <Play size={17} />}Продолжить анализ</button> : null}{report && !running && <button className="button secondary" disabled={disabled} onClick={() => void startAnalysis(true)}>{actionBusy === 'restart' ? <Spinner /> : <RefreshCw size={16} />}Пересчитать партию</button>}</>;
   if (screen === 'list') return <section className="game-analysis-page analysis-list-screen">
     <div className="page-heading"><div><span className="eyebrow">ПОНЯТЬ СВОЮ ИГРУ</span><h1>Анализ партий</h1><p>Выберите партию. Каждый ход — на отдельном экране разбора.</p></div><span className="analysis-heading-icon"><Gauge size={28} /></span></div>
-    <details className="panel analysis-import-disclosure" open={!games.length || undefined}><summary>Загрузить партии Chess.com</summary><form className="analysis-import" onSubmit={event => void importGames(event)}><p>Найдите открытые завершённые партии по нику игрока.</p><div className="analysis-import-fields"><label>Ник на Chess.com<input value={username} onChange={event => setUsername(event.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={40} required placeholder="Ваш ник" disabled={actionBusy !== null} /></label><label>Месяц <span>необязательно</span><input type="month" value={month} onChange={event => setMonth(event.target.value)} min="2007-01" max={new Date().toISOString().slice(0, 7)} disabled={actionBusy !== null} /></label><label>Количество<input type="number" value={limit} onChange={event => setLimit(Number(event.target.value))} min="1" max="50" required disabled={actionBusy !== null} /></label><button className="button secondary" disabled={disabled || !username.trim()}>{actionBusy === 'import' ? <Spinner /> : <Search size={16} />}{actionBusy === 'import' ? 'Загружаем…' : 'Загрузить партии'}</button></div></form></details>
+    <section className="panel analysis-sync-panel" aria-label="Синхронизация Chess.com">
+      <div><h2>Партии Chess.com</h2><p>Ник сохраняется в аккаунте. Новые партии загружаются при открытии этого экрана и каждые 5 минут, пока он открыт.</p></div>
+      <form className="analysis-sync-form" onSubmit={event => { event.preventDefault(); void synchronize(); }}>
+        <label>Ник на Chess.com<input value={username} onChange={event => setUsername(event.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={40} pattern="[A-Za-z0-9_-]+" required placeholder="Ваш ник" disabled={actionBusy !== null || syncSending} /></label>
+        <button className="button primary" disabled={disabled || syncSending || syncWaiting || syncCooldown > 0 || !username.trim()}>{syncSending || syncWaiting ? <Spinner /> : <RefreshCw size={17} />}{syncSending ? 'Сохраняем…' : syncWaiting ? 'Синхронизируем…' : 'Синхронизировать'}</button>
+      </form>
+      <p className="analysis-sync-state" role="status">{sync?.background_requested ? sync.status === 'running' ? `Загружаем партии ${sync.username}. Можно закрыть страницу — синхронизация продолжится на сервере.` : `Синхронизация ${sync.username} в очереди.` : sync?.status === 'completed' ? sync.added_games ? `Добавлено новых партий: ${sync.added_games}.` : 'Новых партий нет. Список актуален.' : sync?.username ? `Сохранённый ник: ${sync.username}.` : 'Укажите ник, чтобы загрузить последние партии.'}</p>
+      {(syncError || sync?.error) && <p className="error-notice" role="alert">{syncError || sync?.error}</p>}
+      {sync?.last_synced_at && <small>Последняя синхронизация: {new Date(sync.last_synced_at).toLocaleString('ru-RU')}</small>}
+      {syncCooldown > 0 && !syncWaiting && <small>Повторная синхронизация через {syncCooldown} сек.</small>}
+      <small>До 200 партий из двух последних месяцев с играми. Для более ранних партий используйте загрузку архива ниже.</small>
+    </section>
+    <details className="panel analysis-import-disclosure"><summary>Загрузить архив за другой месяц</summary><form className="analysis-import" onSubmit={event => void importGames(event)}><p>Загрузка партий для ника, указанного выше.</p><div className="analysis-import-fields"><label>Месяц <span>необязательно</span><input type="month" value={month} onChange={event => setMonth(event.target.value)} min="2007-01" max={new Date().toISOString().slice(0, 7)} disabled={actionBusy !== null} /></label><label>Количество<input type="number" value={limit} onChange={event => setLimit(Number(event.target.value))} min="1" max="50" required disabled={actionBusy !== null} /></label><button className="button secondary" disabled={disabled || syncSending || !username.trim()}>{actionBusy === 'import' ? <Spinner /> : <Search size={16} />}{actionBusy === 'import' ? 'Загружаем…' : 'Загрузить партии'}</button></div></form></details>
     {alerts}
-    <section className="analysis-game-picker"><div className="panel-title"><h2>Ваши партии <span className="subtle-count">{games.length}</span></h2><button className="icon-button" aria-label="Обновить партии для анализа" disabled={loadingGames} onClick={() => void loadGames()}>{loadingGames ? <Spinner /> : <RefreshCw size={18} />}</button></div>
+    <section className="analysis-game-picker"><div className="panel-title"><h2>Ваши партии <span className="subtle-count">{games.length}</span></h2><button className="icon-button" aria-label="Обновить партии для анализа" title="Синхронизировать с Chess.com" disabled={loadingGames || syncSending || syncWaiting || syncCooldown > 0} onClick={() => { if (username.trim()) void synchronize(); else void loadGames(); }}>{loadingGames || syncSending || syncWaiting ? <Spinner /> : <RefreshCw size={18} />}</button></div>
       <div className="analysis-game-options">{games.map(game => <Link key={game.id} href={`/analysis/${game.id}${game.analysis_status === 'completed' ? '/review' : ''}`} aria-label={`Открыть партию ${game.white} — ${game.black}`}><div className="analysis-game-card-heading"><span className="analysis-game-result">{game.result}</span><ArrowRight size={18} /></div><strong>{game.white}<span>— {game.black}</span></strong><small>{dateLabel(game.source_game_at || game.date)} · {game.total_plies} полуходов</small><span className={`analysis-list-state ${game.analysis_status === 'completed' ? 'ready' : ''}`}>{game.analysis_status === 'completed' ? 'Открыть разбор' : game.analysis_outdated ? 'Доступен пересчёт' : game.analysis_status === 'failed' ? 'Повторить анализ' : game.analysis_id != null ? game.background_requested ? 'Анализируем в фоне' : 'Продолжить анализ' : 'Анализировать'}</span></Link>)}</div>
       {!games.length && <div className="panel analysis-placeholder"><Gauge size={32} /><h2>{loadingGames ? 'Загружаем партии…' : 'Пока нет партий'}</h2><p>Загрузите партии Chess.com по нику выше. Уже импортированные партии из раздела «Мои партии» тоже появятся здесь.</p></div>}
     </section>

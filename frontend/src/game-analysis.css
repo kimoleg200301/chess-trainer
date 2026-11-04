@@ -46,6 +46,14 @@
 .analysis-position-board { display: grid; grid-template-columns: repeat(8,minmax(0,1fr)); aspect-ratio: 1; overflow: hidden; border-radius: 7px; width: 100%; box-shadow: 0 4px 14px #293c2a0b; }.analysis-square { position: relative; aspect-ratio: 1; display: grid; place-items: center; }
 .analysis-square.analysis-square-moving { z-index: 4; }
 .analysis-piece-badge.analysis-category-symbol { position: absolute; top: 2%; right: 2%; z-index: 5; width: 36%; min-width: 0; max-width: 27px; height: auto; aspect-ratio: 1; border-radius: 50%; border: 1px solid #fffffff0; box-shadow: 0 1px 3px #203d3340; font-size: clamp(10px,1.2vw,15px); line-height: 1; pointer-events: none; }
+.analysis-sync-panel { padding: 22px; display: grid; gap: 12px; }
+.analysis-sync-panel h2 { font-size: 17px; margin: 0 0 8px; }
+.analysis-sync-panel p { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; }
+.analysis-sync-panel small { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.analysis-sync-form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.analysis-sync-form label { flex: 1 1 180px; min-width: 0; display: grid; gap: 8px; font-size: 12px; }
+.analysis-sync-form input { width: 100%; min-width: 0; }
+.analysis-sync-form .button { min-height: 44px; flex: 0 1 auto; }
 .analysis-square.light { background: #edf0dd; }.analysis-square.dark { background: #8da77e; }.analysis-square.light.last-move { background: #dedfa0; }.analysis-square.dark.last-move { background: #b0bd70; }.analysis-square.in-check { background: #d59b88; }.analysis-square img { width: 88%; height: 88%; position: absolute; pointer-events: none; }
 .analysis-rank,.analysis-file { position: absolute; font-size: clamp(7px,.8vw,10px); font-weight: 600; color: #687d56; z-index: 1; }.analysis-square.dark .analysis-rank,.analysis-square.dark .analysis-file { color: #eff3e6; }.analysis-rank { top: 2px; left: 3px; }.analysis-file { bottom: 1px; right: 3px; }
 .analysis-position-tabs { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 4px; border-radius: 8px; padding: 4px; margin-top: 11px; background: #f0f3eb; }.analysis-position-tabs button { background: transparent; border: 0; border-radius: 6px; padding: 8px 4px; font-size: 10px; color: #7b8b6b; cursor: pointer; }.analysis-position-tabs button[aria-pressed="true"] { background: #fff; color: #436143; box-shadow: 0 1px 5px #30402a09; }.analysis-position-tabs button:disabled { opacity: .45; cursor: default; }

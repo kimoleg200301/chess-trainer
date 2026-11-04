@@ -150,6 +150,22 @@ class GameAnalysis(Base):
     )
 
 
+class ChessComSync(Base):
+    __tablename__ = "chesscom_sync"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    username: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    status: Mapped[str] = mapped_column(String(16), default="idle", server_default="idle")
+    background_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    added_games: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    checked_games: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class CoachProfile(Base):
     __tablename__ = "coach_profiles"
     id: Mapped[int] = mapped_column(primary_key=True)
