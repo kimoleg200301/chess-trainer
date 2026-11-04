@@ -37,7 +37,10 @@ export type CoachAttempt = {
   mistakes: number; hints_used: number; elapsed_ms: number | null; last_move: string | null;
   ply_index: number; total_plies: number; prompt: string; feedback: string; is_new: boolean;
   source: { game_url: string; move_number: number | null; own_game: boolean };
-  solution: null | { initial_fen: string; moves: { uci: string; san: string; fen: string }[]; explanation: string };
+  solution: null | {
+    initial_fen: string; moves: { uci: string; san: string; fen: string }[]; explanation: string;
+    kind?: 'accepted' | 'reference'; reference_move?: { uci: string; san: string } | null;
+  };
   target_seconds: number | null;
 };
 export type CoachPracticeOptions = { skill_id?: string; game_id?: number; ply?: number; exclude_attempt_id?: number };

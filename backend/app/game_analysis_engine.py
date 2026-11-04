@@ -258,7 +258,7 @@ def analyse_game_move(game: dict, ply: int, engine, *, nodes: int = ANALYSIS_NOD
         "best_uci": None, "best_san": None, "category": "unassessed", "accuracy": None,
         "expected_loss": None, "best_expected": None, "played_expected": None,
         "score_before": None, "score_after": None, "mate_before": None, "mate_after": None,
-        "best_line_uci": [], "best_line_san": [], "depth": 0,
+        "best_line_uci": [], "best_line_san": [], "played_line_uci": [], "played_line_san": [], "depth": 0,
         "assessed": False, "reason": "Позиция пока не получила надёжной оценки.", "brilliant_evidence": None,
     }
     if board.is_game_over():
@@ -267,6 +267,7 @@ def analyse_game_move(game: dict, ply: int, engine, *, nodes: int = ANALYSIS_NOD
     if board.legal_moves.count() == 1:
         result.update(category="forced", assessed=True, best_uci=played.uci(), best_san=board.san(played),
                       best_line_uci=[played.uci()], best_line_san=[board.san(played)],
+                      played_line_uci=[played.uci()], played_line_san=[board.san(played)],
                       reason="Единственный допустимый ход. Он не входит в среднюю точность.")
         return result
     if after.is_checkmate():
@@ -274,6 +275,7 @@ def analyse_game_move(game: dict, ply: int, engine, *, nodes: int = ANALYSIS_NOD
         result.update(category="best", assessed=True, best_uci=played.uci(), best_san=board.san(played),
                       accuracy=100.0, expected_loss=0.0, best_expected=1.0, played_expected=1.0,
                       mate_before=1, mate_after=1, best_line_uci=[played.uci()], best_line_san=[board.san(played)],
+                      played_line_uci=[played.uci()], played_line_san=[board.san(played)],
                       reason="Ход сразу ставит мат.")
         return result
     deadline = time.monotonic() + max_position_time
@@ -378,13 +380,16 @@ def analyse_game_move(game: dict, ply: int, engine, *, nodes: int = ANALYSIS_NOD
                 reason = "Проверенная жертва материала сохраняет сильное продолжение. Это эвристическая отметка тренажёра."
                 result["brilliant_evidence"] = evidence
     ucis, sans = _line(infos[0], board)
+    played_ucis, played_sans = _line(played_info, board)
     result.update(best_uci=best.uci(), best_san=board.san(best), category=category,
                   accuracy=round(move_accuracy(loss), 2), expected_loss=round(loss, 6),
                   best_expected=round(best_expected, 6), played_expected=round(played_expected, 6),
                   score_before=best_cp if best_mate is None else None,
                   score_after=played_cp if played_mate is None else None,
                   mate_before=best_mate, mate_after=played_mate,
-                  best_line_uci=ucis, best_line_san=sans, depth=depth, assessed=True, reason=reason)
+                  best_line_uci=ucis, best_line_san=sans,
+                  played_line_uci=played_ucis, played_line_san=played_sans,
+                  depth=depth, assessed=True, reason=reason)
     return result
 
 

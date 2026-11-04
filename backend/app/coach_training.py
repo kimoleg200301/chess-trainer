@@ -16,6 +16,8 @@ from .models import CoachAttempt, CoachGame, CoachProfile, CoachReview, Puzzle, 
 from .security import current_user
 
 router = APIRouter()
+MOVE_CHECK_VERSION = 1
+MOVE_CHECK_HISTORY_LIMIT = 32
 
 
 class PracticeBody(BaseModel):
@@ -59,21 +61,68 @@ def record_time(attempt: CoachAttempt, elapsed_ms: int | None):
 
 def _solution(attempt: CoachAttempt):
     board = chess.Board(attempt.starting_fen)
+    reference = attempt.payload.get("moves", [])
+    moves, kind, reference_index = reference, "reference", 0
+    legacy_alternative = False
+    if attempt.status == "completed":
+        if attempt.payload.get("accepted_moves") and attempt.payload.get("accepted_uci"):
+            moves, kind = attempt.payload["accepted_moves"], "accepted"
+            reference_index = attempt.payload.get("accepted_ply", 0)
+        elif attempt.kind == "decision" and reference:
+            # Old completed attempts only saved the accepted move and final FEN.
+            # They cannot truthfully replay a continuation of a different move.
+            try:
+                move = chess.Move.from_uci(attempt.payload.get("last_move", ""))
+                after = board.copy()
+                if move in board.legal_moves and move.uci() != reference[0]:
+                    after.push(move)
+                    if after.fen() == attempt.fen:
+                        moves, kind, legacy_alternative = [move.uci()], "accepted", True
+            except (TypeError, ValueError):
+                pass
+    reference_move = None
+    reference_board = board.copy()
+    try:
+        for uci in reference[:reference_index]:
+            reference_board.push_uci(uci)
+        if reference_index < len(reference):
+            move = chess.Move.from_uci(reference[reference_index])
+            if move in reference_board.legal_moves:
+                reference_move = {"uci": move.uci(), "san": reference_board.san(move)}
+    except (TypeError, ValueError):
+        pass
     line = []
-    for uci in attempt.payload.get("moves", []):
-        move = chess.Move.from_uci(uci)
+    for uci in moves:
+        try:
+            move = chess.Move.from_uci(uci)
+        except (TypeError, ValueError):
+            break
         if move not in board.legal_moves:
             break
         san = board.san(move)
         board.push(move)
         line.append({"uci": uci, "san": san, "fen": board.fen()})
-    return {"initial_fen": attempt.starting_fen, "moves": line,
-            "explanation": attempt.payload.get("explanation", "Разберите продолжение и повторите идею в новой позиции.")}
+    explanation = attempt.payload.get("explanation") or "Разберите продолжение и повторите идею в новой позиции."
+    if kind == "accepted":
+        accepted_san = line[reference_index]["san"] if reference_index < len(line) else ""
+        explanation = f"Принят ваш ход {accepted_san}. "
+        if legacy_alternative:
+            explanation += "Продолжение этой старой попытки не сохранилось; показан только сыгранный ход."
+        else:
+            explanation += "В разборе показано проверенное продолжение вашего хода." if len(line) > reference_index + 1 else "В разборе показан ваш ход."
+    result = {"initial_fen": attempt.starting_fen, "moves": line, "explanation": explanation, "kind": kind}
+    if reference_move is not None:
+        result["reference_move"] = reference_move
+    return result
 
 
 def attempt_view(attempt: CoachAttempt) -> dict:
     from .coach_insights import SKILLS
     skill = SKILLS[attempt.skill_id]
+    solution = _solution(attempt) if attempt.status != "active" else None
+    feedback = attempt.payload.get("feedback", "")
+    if solution and solution["kind"] == "accepted" and not attempt.payload.get("accepted_moves"):
+        feedback = "Ваш ход принят. В разборе показан ваш сыгранный ход."
     return {
         "id": attempt.id, "skill_id": attempt.skill_id, "skill_title": skill["title"],
         "kind": attempt.kind, "fen": attempt.fen, "starting_fen": attempt.starting_fen,
@@ -86,8 +135,8 @@ def attempt_view(attempt: CoachAttempt) -> dict:
                    if attempt.kind == "decision" else "Найдите и проведите тактическое продолжение."),
         "source": {"game_url": attempt.payload.get("game_url", ""),
                    "move_number": attempt.payload.get("move_number"), "own_game": attempt.kind == "decision"},
-        "feedback": attempt.payload.get("feedback", ""),
-        "solution": _solution(attempt) if attempt.status != "active" else None,
+        "feedback": feedback,
+        "solution": solution,
         "target_seconds": 30 if attempt.skill_id == "time_management" else None,
         "is_new": attempt.is_new,
     }
@@ -103,6 +152,10 @@ def _new_attempt(db: Session, profile: CoachProfile, skill_id: str, key: str, ki
         return active
     seen = db.scalar(select(CoachAttempt.id).where(CoachAttempt.coach_id == profile.id,
                                                   CoachAttempt.task_key == key).limit(1))
+    # Repetitions retain the canonical task, never a past learner's alternative
+    # or the diagnostic history belonging to that earlier attempt.
+    payload = {key: value for key, value in payload.items()
+               if not key.startswith("accepted_") and key != "move_checks"}
     attempt = CoachAttempt(coach_id=profile.id, skill_id=skill_id, task_key=key, kind=kind,
                            game_id=game_id, puzzle_id=puzzle_id, payload=payload,
                            fen=fen, starting_fen=fen, learner_white=chess.Board(fen).turn,
@@ -251,7 +304,7 @@ def finish(db: Session, attempt: CoachAttempt, status: str):
                              if clean else timedelta(minutes=10))
 
 
-def _alternative(attempt: CoachAttempt, move: str) -> tuple[bool, list[str]]:
+def _alternative(attempt: CoachAttempt, move: str) -> tuple[bool, dict]:
     from .game_analysis_engine import ANALYSIS_ENGINE_OPTIONS, analyse_game_move
     if not engine_slots.acquire(blocking=False):
         raise HTTPException(503, "Движок занят анализом. Повторите ход через несколько секунд.")
@@ -261,8 +314,18 @@ def _alternative(attempt: CoachAttempt, move: str) -> tuple[bool, list[str]]:
             prefix = attempt.payload.get("prefix_moves", [])
             report = analyse_game_move({"initial_fen": attempt.payload.get("game_initial_fen", attempt.fen),
                                         "moves": [*prefix, move]}, len(prefix), engine)
+            report["engine_name"] = getattr(engine, "id", {}).get("name")
         if not report.get("assessed") or report.get("expected_loss") is None:
             raise HTTPException(503, "Не удалось надёжно проверить этот вариант. Попробуйте ещё раз; ошибка не засчитана.")
+        played_line = report.get("played_line_uci")
+        if not isinstance(played_line, list) or not played_line or played_line[0] != move:
+            raise HTTPException(503, "Не удалось сохранить проверенное продолжение этого хода. Повторите проверку; ошибка не засчитана.")
+        position = chess.Board(attempt.fen)
+        for uci in played_line:
+            candidate = chess.Move.from_uci(uci)
+            if candidate not in position.legal_moves:
+                raise ValueError("Недопустимое продолжение проверенного хода.")
+            position.push(candidate)
         # An alternative must retain the result, including a forced mate; a low
         # logistic loss in an already won/lost position alone is insufficient.
         loss = report["expected_loss"]
@@ -273,8 +336,8 @@ def _alternative(attempt: CoachAttempt, move: str) -> tuple[bool, list[str]]:
         mate_ok &= not (mate_after is not None and mate_after < 0 and (mate_before is None or mate_before > 0))
         if mate_before is not None and mate_after is not None and mate_before < 0 and mate_after < 0:
             mate_ok &= mate_after <= mate_before
-        return loss <= .03 and cp_ok and mate_ok, report.get("best_line_uci", [])
-    except (OSError, chess.engine.EngineError, TimeoutError, ValueError):
+        return loss <= .03 and cp_ok and mate_ok, report
+    except (OSError, chess.engine.EngineError, TimeoutError, TypeError, ValueError):
         raise HTTPException(503, "Движок сейчас недоступен. Позиция сохранена; повторите проверку позже.") from None
     finally:
         engine_slots.release()
@@ -292,17 +355,35 @@ def play(attempt_id: int, body: MoveBody, db: Session = Depends(get_db), user: U
     record_time(attempt, body.elapsed_ms)
     expected = attempt.payload["moves"][attempt.ply_index]
     accepted = body.move == expected
+    report = {}
+    check_source = "reference"
     after = board.copy()
     after.push(move)
     if after.is_checkmate():
         accepted = True
+        check_source = "checkmate"
+        report = {"best_uci": body.move, "mate_before": 1, "mate_after": 1,
+                  "expected_loss": 0, "played_line_uci": [body.move]}
     elif not accepted and attempt.kind == "decision":
-        accepted, _ = _alternative(attempt, body.move)
+        accepted, report = _alternative(attempt, body.move)
+        check_source = "engine"
     payload = dict(attempt.payload)
+    checks = list(payload.get("move_checks", []))
+    checks.append({"uci": body.move, "verdict": "accepted" if accepted else "rejected",
+                   "source": check_source, "best_uci": report.get("best_uci", expected),
+                   "checker_version": MOVE_CHECK_VERSION, "engine_name": report.get("engine_name"),
+                   **{key: report.get(key) for key in (
+                       "score_before", "score_after", "mate_before", "mate_after", "expected_loss", "depth")},
+                   "checked_at": now().isoformat(), "elapsed_ms": attempt.elapsed_ms})
+    payload["move_checks"] = checks[-MOVE_CHECK_HISTORY_LIMIT:]
     if not accepted:
         attempt.mistakes += 1
         feedback = "Этот ход не сохраняет нужное продолжение. Проверьте угрозы соперника и попробуйте ещё раз."
     else:
+        if body.move != expected:
+            payload["accepted_uci"] = body.move
+            payload["accepted_ply"] = attempt.ply_index
+            payload["accepted_moves"] = [*payload["moves"][:attempt.ply_index], *report["played_line_uci"]]
         board.push(move)
         attempt.ply_index += 1
         payload["last_move"] = body.move
@@ -310,7 +391,8 @@ def play(attempt_id: int, body: MoveBody, db: Session = Depends(get_db), user: U
             finish(db, attempt, "completed")
             feedback = "Решение найдено. Разберите идею и проверьте её в следующей позиции."
             if body.move != expected:
-                feedback = "Ваше продолжение также подходит — проверено движком. В разборе показан исходный вариант."
+                feedback = ("Ваш ход ставит мат. В разборе показан ваш вариант." if board.is_checkmate()
+                            else "Ваше продолжение также подходит — проверено движком. В разборе показан ваш вариант.")
         else:
             reply = payload["moves"][attempt.ply_index]
             board.push_uci(reply)

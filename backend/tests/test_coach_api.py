@@ -83,6 +83,8 @@ def fake_engine(monkeypatch):
     calls, failures = [], set()
 
     class Engine:
+        id = {"name": "Deterministic coach test engine"}
+
         def __enter__(self):
             return self
 
@@ -114,6 +116,7 @@ def fake_engine(monkeypatch):
                 "score_before": 0, "score_after": -150,
                 "mate_before": None, "mate_after": None,
                 "best_line_uci": [best.uci()], "best_line_san": [best_san],
+                "played_line_uci": [played.uci()], "played_line_san": [san],
                 "depth": 16, "assessed": True, "reason": "Проверенный тестовый ход",
                 "brilliant_evidence": None}
 
@@ -582,23 +585,155 @@ def test_wrong_legal_move_counts_but_illegal_move_does_not(personal_position, mo
     assert body["attempt"]["solution"] is None
 
 
-def test_good_alternative_is_engine_checked_and_accepted(personal_position, monkeypatch):
+def test_accepted_alternative_replays_submitted_line_and_review_retains_reference(personal_position, monkeypatch):
     from app import game_analysis_engine
-    client, _, _, attempt = personal_position
+    from app.db import engine
+    from app.models import CoachAttempt, CoachReview, now
+    client, profile_id, _, attempt = personal_position
+    path = f"/api/coach/practice/{attempt['id']}"
     calls = []
     original = game_analysis_engine.analyse_game_move
+    accepted_line = ["d2d4", "d7d5", "c2c4", "e7e6"]
 
-    def good(data, ply, *args, **kwargs):
-        calls.append(data["moves"][ply])
-        return {**original(data, ply, *args, **kwargs), "expected_loss": 0.005, "assessed": True,
-                "category": "excellent", "score_before": 0, "score_after": -5,
-                "mate_before": None, "mate_after": None}
+    def checked(data, ply, *args, **kwargs):
+        move = data["moves"][ply]
+        calls.append(move)
+        rejected = move == "a2a3"
+        return {**original(data, ply, *args, **kwargs), "assessed": True,
+                "expected_loss": 0.3 if rejected else 0.005,
+                "category": "blunder" if rejected else "excellent",
+                "score_before": 20, "score_after": -500 if rejected else 15,
+                "mate_before": None, "mate_after": None,
+                # Neither this new root choice nor the saved e4 reference is d4.
+                "best_uci": "c2c4", "best_line_uci": ["c2c4", "e7e5"],
+                "played_line_uci": [move] if rejected else accepted_line}
 
-    monkeypatch.setattr(game_analysis_engine, "analyse_game_move", good)
-    response = client.post(f"/api/coach/practice/{attempt['id']}/move", json={"move": "d2d4"})
+    monkeypatch.setattr(game_analysis_engine, "analyse_game_move", checked)
+    rejected = client.post(path + "/move", json={"move": "a2a3", "elapsed_ms": 2000})
+    assert rejected.status_code == 200 and not rejected.json()["accepted"]
+    assert rejected.json()["attempt"]["mistakes"] == 1
+    assert rejected.json()["attempt"]["solution"] is None
+    response = client.post(path + "/move", json={"move": "d2d4", "elapsed_ms": 4000})
     assert response.status_code == 200, response.text
-    assert calls == ["d2d4"] and response.json()["accepted"]
-    assert response.json()["attempt"]["status"] == "completed"
+    result = response.json()["attempt"]
+    assert calls == ["a2a3", "d2d4"] and response.json()["accepted"]
+    assert result["status"] == "completed" and result["mistakes"] == 1
+    assert result["last_move"] == "d2d4" and result["elapsed_ms"] == 4000
+    solution = result["solution"]
+    assert solution["kind"] == "accepted"
+    assert solution["reference_move"] == {"uci": "e2e4", "san": "e4"}
+    assert [move["uci"] for move in solution["moves"]] == accepted_line
+    board = chess.Board(attempt["starting_fen"])
+    for index, move in enumerate(solution["moves"]):
+        assert move["san"] == board.san(chess.Move.from_uci(move["uci"]))
+        board.push_uci(move["uci"])
+        assert move["fen"] == board.fen()
+        if index == 0:
+            assert result["fen"] == board.fen()
+    assert client.get(path).json() == result
+    assert "move_checks" not in result and "payload" not in result
+    with Session(engine()) as db:
+        saved = db.get(CoachAttempt, attempt["id"])
+        assert saved.payload["moves"] == ["e2e4"]
+        assert saved.payload["accepted_moves"] == accepted_line
+        assert saved.payload["accepted_uci"] == "d2d4"
+        checks = saved.payload["move_checks"]
+        assert [(item["uci"], item["verdict"], item["source"]) for item in checks] == [
+            ("a2a3", "rejected", "engine"), ("d2d4", "accepted", "engine")]
+        assert checks[-1]["best_uci"] == "c2c4" and checks[-1]["score_after"] == 15
+        assert checks[-1]["expected_loss"] == 0.005 and checks[-1]["elapsed_ms"] == 4000
+        assert checks[-1]["checker_version"] == 1
+        assert checks[-1]["engine_name"] == "Deterministic coach test engine"
+        assert datetime.fromisoformat(checks[-1]["checked_at"]).tzinfo is not None
+        review = db.scalar(select(CoachReview).where(CoachReview.coach_id == profile_id))
+        assert review.successes == 0  # Earlier mistake remains part of this attempt.
+        review.due_at = now() - timedelta(minutes=1)
+        db.commit()
+
+    repeat = client.post("/api/coach/practice", json={"skill_id": "calculation"})
+    assert repeat.status_code == 200, repeat.text
+    fresh = repeat.json()
+    assert fresh["id"] != attempt["id"] and not fresh["is_new"]
+    assert fresh["status"] == "active" and fresh["solution"] is None
+    assert fresh["mistakes"] == 0 and fresh["fen"] == attempt["starting_fen"]
+    with Session(engine()) as db:
+        payload = db.get(CoachAttempt, fresh["id"]).payload
+        assert payload["moves"] == ["e2e4"]
+        assert not any(key.startswith("accepted_") or key == "move_checks" for key in payload)
+    revealed = client.post(f"/api/coach/practice/{fresh['id']}/reveal", json={}).json()
+    assert revealed["solution"]["kind"] == "reference"
+    assert [move["uci"] for move in revealed["solution"]["moves"]] == ["e2e4"]
+    assert client.get(path).json()["solution"] == solution
+
+
+def test_move_check_history_retains_recent_verdicts_without_resetting_mistakes(personal_position):
+    from app.db import engine
+    from app.models import CoachAttempt
+    client, _, _, attempt = personal_position
+    path = f"/api/coach/practice/{attempt['id']}"
+    # The fake engine reliably rejects a3. A long practice session still keeps
+    # all errors in its counter while bounding the private diagnostic history.
+    for index in range(34):
+        response = client.post(path + "/move", json={"move": "a2a3", "elapsed_ms": index + 1})
+        assert response.status_code == 200 and not response.json()["accepted"]
+    response = client.post(path + "/move", json={"move": "e2e4", "elapsed_ms": 35})
+    assert response.status_code == 200 and response.json()["accepted"]
+    assert response.json()["attempt"]["mistakes"] == 34
+    with Session(engine()) as db:
+        checks = db.get(CoachAttempt, attempt["id"]).payload["move_checks"]
+        assert len(checks) == 32
+        assert [row["elapsed_ms"] for row in checks] == list(range(4, 36))
+        assert all(row["verdict"] == "rejected" for row in checks[:-1])
+        assert checks[-1]["verdict"] == "accepted" and checks[-1]["source"] == "reference"
+
+
+def test_legacy_completed_alternative_replays_actual_move_without_inventing_continuation(personal_position):
+    from app.db import engine
+    from app.models import CoachAttempt, now
+    client, _, _, attempt = personal_position
+    board = chess.Board(attempt["starting_fen"])
+    board.push_uci("d2d4")
+    with Session(engine()) as db:
+        saved = db.get(CoachAttempt, attempt["id"])
+        saved.status, saved.completed_at, saved.ply_index = "completed", now(), 1
+        saved.fen = board.fen()
+        saved.payload = {**saved.payload, "moves": ["e2e4", "e7e5", "g1f3"], "last_move": "d2d4",
+                         "feedback": "Ваше продолжение также подходит — проверено движком. В разборе показан исходный вариант."}
+        db.commit()
+    result = client.get(f"/api/coach/practice/{attempt['id']}").json()
+    assert result["solution"]["kind"] == "accepted"
+    assert "исходный вариант" not in result["feedback"]
+    assert result["solution"]["reference_move"] == {"uci": "e2e4", "san": "e4"}
+    assert result["solution"]["moves"] == [{"uci": "d2d4", "san": "d4", "fen": board.fen()}]
+
+
+def test_immediate_mating_alternative_replays_actual_mate_without_engine(personal_position, monkeypatch):
+    from app import game_analysis_engine
+    from app.db import engine
+    from app.models import CoachAttempt
+    client, _, _, attempt = personal_position
+    fen = "7k/5K2/6Q1/8/8/8/8/8 w - - 0 1"
+    with Session(engine()) as db:
+        saved = db.get(CoachAttempt, attempt["id"])
+        saved.fen = saved.starting_fen = fen
+        saved.payload = {**saved.payload, "moves": ["g6g7"], "best_uci": "g6g7",
+                         "game_initial_fen": fen, "prefix_moves": []}
+        db.commit()
+
+    def no_search(*args, **kwargs):
+        raise AssertionError("An immediate mate is established by the legal board position")
+
+    monkeypatch.setattr(game_analysis_engine, "analyse_game_move", no_search)
+    path = f"/api/coach/practice/{attempt['id']}"
+    response = client.post(path + "/move", json={"move": "g6h6"})
+    assert response.status_code == 200, response.text
+    result = response.json()["attempt"]
+    assert response.json()["accepted"] and result["mistakes"] == 0
+    assert chess.Board(result["fen"]).is_checkmate()
+    assert result["solution"]["kind"] == "accepted"
+    assert result["solution"]["reference_move"] == {"uci": "g6g7", "san": "Qg7#"}
+    assert result["solution"]["moves"] == [{"uci": "g6h6", "san": "Qh6#", "fen": result["fen"]}]
+    assert client.get(path).json() == result
 
 
 @pytest.mark.parametrize("mate_after,accepted", [(-1, False), (-8, True), (-9, True)])
@@ -636,6 +771,35 @@ def test_uncertain_alternative_is_not_counted_as_an_error(personal_position, mon
     saved = client.get(path).json()
     assert saved["status"] == "active" and saved["mistakes"] == 0
     assert saved["fen"] == attempt["fen"] and saved["solution"] is None
+
+
+@pytest.mark.parametrize("candidate_line", [None, [], ["e2e4"],
+    ["d2d4", "d7d5", "d2d4"], ["d2d4", "0000"], ["d2d4", None]])
+def test_unusable_candidate_replay_does_not_accept_or_count_a_mistake(personal_position, monkeypatch, candidate_line):
+    from app import game_analysis_engine
+    from app.db import engine
+    from app.models import CoachAttempt
+    client, _, _, attempt = personal_position
+    original = game_analysis_engine.analyse_game_move
+
+    def incomplete(*args, **kwargs):
+        row = {**original(*args, **kwargs), "assessed": True, "expected_loss": 0.005,
+               "score_before": 20, "score_after": 15, "played_line_uci": candidate_line}
+        if candidate_line is None:
+            row.pop("played_line_uci")
+        return row
+
+    monkeypatch.setattr(game_analysis_engine, "analyse_game_move", incomplete)
+    path = f"/api/coach/practice/{attempt['id']}"
+    response = client.post(path + "/move", json={"move": "d2d4", "elapsed_ms": 2000})
+    assert response.status_code == 503, response.text
+    result = client.get(path).json()
+    assert result["status"] == "active" and result["mistakes"] == 0
+    assert result["fen"] == attempt["fen"] and result["solution"] is None
+    with Session(engine()) as db:
+        payload = db.get(CoachAttempt, attempt["id"]).payload
+        assert not payload.get("move_checks")
+        assert not any(key.startswith("accepted_") for key in payload)
 
 
 def test_all_skill_tracks_can_start_supplementary_practice(controlled, sources):

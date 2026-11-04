@@ -118,11 +118,14 @@ def check(browser, width, height):
                 assert body['move'] == 'e2e4', body
                 attempt.update(status='completed', fen=E4, last_move='e2e4', ply_index=1,
                                elapsed_ms=body['elapsed_ms'], feedback='Ход принят. Разбери продолжение.')
-                attempt['solution'] = dict(initial_fen=FEN, moves=deepcopy(LONG_SOLUTION), explanation='Проверь каждый шах и каждое взятие. ' * 30)
+                # The accepted move differs from the source exercise's reference.
+                # Replay must keep the accepted line instead of replacing it with d4.
+                attempt['solution'] = dict(initial_fen=FEN, moves=deepcopy(LONG_SOLUTION), kind='accepted',
+                                           reference_move=dict(uci='d2d4', san='d4'), explanation='Проверь каждый шах и каждое взятие. ' * 30)
                 data['active_attempt_id'] = None
                 result = dict(accepted=True, attempt=attempt, feedback=attempt['feedback'])
             elif path.endswith('/reveal'):
-                attempt.update(status='revealed', solution=dict(initial_fen=FEN, moves=deepcopy(LONG_SOLUTION), explanation='Сначала проверь безопасность своего короля. ' * 30))
+                attempt.update(status='revealed', solution=dict(initial_fen=FEN, moves=deepcopy(LONG_SOLUTION), kind='reference', explanation='Сначала проверь безопасность своего короля. ' * 30))
                 data['active_attempt_id'] = None
                 result = attempt
             else: result = attempt
@@ -160,6 +163,21 @@ def check(browser, width, height):
         if width in (390, 412) and height > 700:
             for attribute in ('left', 'width'):
                 assert abs(current['board'][attribute] - initial['board'][attribute]) <= 1, (stage, initial, current)
+
+    def assert_position(expected_fen):
+        expected = {}
+        for row, rank in enumerate(expected_fen.split()[0].split('/')):
+            file = 0
+            for piece in rank:
+                if piece.isdigit():
+                    file += int(piece)
+                else:
+                    expected[f'{chr(97 + file)}{8 - row}'] = ('w' if piece.isupper() else 'b') + piece.upper()
+                    file += 1
+        actual = page.locator('.coach-session .chessboard').evaluate('''board => Object.fromEntries(
+          [...board.querySelectorAll('[data-square]')].filter(square => square.querySelector('img')).map(square =>
+            [square.dataset.square, square.querySelector('img').getAttribute('src').split('/').pop().replace('.svg', '')]))''')
+        assert actual == expected, (expected_fen, actual)
 
     def select_last_solution_move(stage, initial):
         moves = page.locator('.coach-solution-moves')
@@ -219,10 +237,18 @@ def check(browser, width, height):
     assert_fits('network-error')
     page.locator('.coach-session [data-square="e2"]').click(); page.locator('.coach-session [data-square="e4"]').click()
     expect(page.get_by_role('heading', name='Сохрани эту идею', exact=True)).to_be_visible()
+    expect(page.locator('.coach-solution-label')).to_contain_text('Твой вариант')
+    expect(page.locator('.coach-solution-label')).to_contain_text('Эталон: d4')
+    expect(page.locator('.coach-solution-label')).to_contain_text(f'1 / {len(LONG_SOLUTION)}')
+    assert_position(E4)
     assert_board_unchanged('completed-long-pv', initial_board)
     page.get_by_role('button', name='Предыдущий ход', exact=True).click()
     expect(page.locator('.coach-solution-label')).to_contain_text(f'0 / {len(LONG_SOLUTION)}')
+    assert_position(FEN)
+    page.get_by_role('button', name='Следующий ход', exact=True).click()
+    assert_position(E4)
     select_last_solution_move('completed-scroll-to-last-move', initial_board)
+    assert_position(LONG_SOLUTION[-1]['fen'])
     page.get_by_role('button', name='Предыдущий ход', exact=True).click()
     expect(page.locator('.coach-solution-label')).to_contain_text(f'{len(LONG_SOLUTION) - 1} / {len(LONG_SOLUTION)}')
     page.get_by_role('button', name='Воспроизвести решение', exact=True).click()
@@ -232,6 +258,20 @@ def check(browser, width, height):
     if screenshot_dir:
         Path(screenshot_dir).mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(Path(screenshot_dir) / f'coach-session-{width}x{height}.png'))
+    # A stale dashboard can offer resume after another request completed the
+    # attempt. Reopening must show the accepted move, not the initial position.
+    data['active_attempt_id'] = attempt['id']
+    page.get_by_role('button', name='К плану', exact=True).click()
+    page.get_by_role('tab', name='План', exact=True).click()
+    page.get_by_role('button', name='Продолжить занятие', exact=True).click()
+    expect(page.get_by_role('heading', name='Сохрани эту идею', exact=True)).to_be_visible()
+    expect(page.locator('.coach-solution-label')).to_contain_text(f'1 / {len(LONG_SOLUTION)}')
+    expect(page.locator('.coach-session-underboard')).to_contain_text('Разобрано: 1 / 10')
+    assert_position(E4)
+    assert_board_unchanged('resumed-completed-alternative', initial_board)
+    data['active_attempt_id'] = None
+    if screenshot_dir:
+        page.screenshot(path=str(Path(screenshot_dir) / f'coach-accepted-{width}x{height}.png'))
     page.get_by_role('button', name='Дальше', exact=True).click()
     expect(page.get_by_role('heading', name='Выбери сильный ход', exact=True)).to_be_visible()
     current_id = attempt['id']
@@ -252,6 +292,8 @@ def check(browser, width, height):
     assert attempt['id'] == current_id
     page.get_by_role('button', name='Разобрать', exact=True).click()
     expect(page.get_by_role('heading', name='Пойми продолжение', exact=True)).to_be_visible()
+    expect(page.locator('.coach-solution-label')).to_contain_text('Продолжение')
+    expect(page.locator('.coach-solution-label')).not_to_contain_text('Эталон:')
     assert_board_unchanged('revealed-long-pv', initial_board)
     select_last_solution_move('revealed-scroll-to-last-move', initial_board)
     page.get_by_role('button', name='К плану', exact=True).click()
@@ -286,7 +328,7 @@ def check(browser, width, height):
     expect(page.get_by_role('button', name='Повторить анализ', exact=True)).to_be_visible()
     assert not errors, errors
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    print(f'PASS {width}x{height}: setup, tracking, 11 skills, timeout evidence, moves/retry, legal 20-ply solution/reveal/replay, internal scroll, viewport, persisted resume, pause, pagination')
+    print(f'PASS {width}x{height}: setup, tracking, 11 skills, timeout evidence, moves/retry, accepted alternative/reference, legal 20-ply replay, completed/active resume, internal scroll, viewport, pause, pagination')
     context.close()
 
 

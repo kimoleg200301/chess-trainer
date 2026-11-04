@@ -34,6 +34,10 @@ const timeControlLabel = (value: string) => {
   return `${Number(base) / 60} + ${increment}`;
 };
 const rateLabel = (value: number | null) => value == null ? '—' : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+function initialReplayIndex(attempt: CoachAttempt) {
+  if (attempt.status === 'active' || !attempt.solution) return null;
+  return attempt.solution.moves.findIndex(move => move.fen === attempt.fen) + 1;
+}
 function Spinner() { return <LoaderCircle size={17} className="spinner" aria-hidden="true" />; }
 function Notice({ message, close }: { message: string; close?: () => void }) {
   return <div className="error-notice" role="alert"><span>{message}</span>{close && <button aria-label="Закрыть сообщение" onClick={close}><X size={16} /></button>}</div>;
@@ -194,10 +198,7 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   function toggleReplay() { if (replayPlaying) setReplayPlaying(false); else { if (replayIndex == null || shownReplay >= totalReplay) setReplayIndex(0); setReplayPlaying(true); } }
   function acceptAttempt(value: CoachAttempt) {
     setAttempt(value);
-    if (value.status !== 'active' && value.solution) {
-      const matched = value.solution.moves.findIndex(item => item.fen === value.fen);
-      setReplayIndex(matched >= 0 ? matched + 1 : 0);
-    }
+    setReplayIndex(initialReplayIndex(value));
     if (value.status !== 'active' && !finished.current.has(value.id)) {
       finished.current.add(value.id); setSessionCount(count => count + 1);
       if (value.status === 'completed' && !value.mistakes && !value.hints_used) setSessionClean(count => count + 1);
@@ -227,7 +228,7 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   async function resume() {
     const id = attempt?.status === 'active' ? attempt.id : dashboard?.active_attempt_id;
     if (!id) return;
-    await action('resume-practice', async () => { const result = await coachApi.attempt(id); setAttempt(result); setFeedback(result.feedback || ''); setHintSquare(null); setFeedbackKind('neutral'); setReplayIndex(null); setTimeError(false); setScreen('practice'); });
+    await action('resume-practice', async () => { const result = await coachApi.attempt(id); setAttempt(result); setFeedback(result.feedback || ''); setHintSquare(null); setFeedbackKind('neutral'); setReplayIndex(initialReplayIndex(result)); setTimeError(false); setScreen('practice'); });
   }
   async function move(uci: string) {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
@@ -276,7 +277,7 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
       <div className="coach-lesson-heading" role="status" aria-live="polite" aria-atomic="true"><span>{checkingMove ? <Spinner /> : done ? <CheckCircle2 size={20} /> : <Target size={20} />}</span><div><small>{done ? attempt.status === 'completed' ? 'РЕШЕНИЕ НАЙДЕНО' : 'РАЗБОР ПОЗИЦИИ' : 'ТВОЯ ЗАДАЧА'}</small><h1>{checkingMove ? 'Проверяю ход…' : done ? attempt.status === 'completed' ? 'Сохрани эту идею' : 'Пойми продолжение' : attempt.kind === 'decision' ? 'Выбери сильный ход' : 'Найди продолжение'}</h1></div></div>
       <div className="coach-lesson-text" tabIndex={0} aria-label="Пояснение к позиции" aria-live="polite">{checkingMove ? <p>Таймер решения на паузе.</p> : error ? <Notice message={error} close={() => setError('')} /> : <><p>{feedback || attempt.prompt}</p>{done && solution?.explanation && solution.explanation !== feedback && <p>{solution.explanation}</p>}</>}{!checkingMove && timeError && <p className="coach-time-warning">Время пока не сохранено. Повторим отправку при восстановлении связи.</p>}</div>
       {!done && attempt.target_seconds != null && <p className="coach-time-target"><Clock3 size={14} />Ориентир: {attempt.target_seconds} сек. Можно думать дольше.</p>}
-      {done && solution && <div className="coach-solution"><div className="coach-solution-label"><span>Продолжение</span><span>{shownReplay} / {totalReplay}</span></div><div className="coach-solution-moves" tabIndex={0} aria-label="Ходы решения">{solution.moves.map((item, index) => <button key={`${index}-${item.uci}`} className={shownReplay === index + 1 ? 'current' : ''} onClick={() => seek(index + 1)} aria-label={`Показать ход ${item.san}`}>{item.san}</button>)}</div></div>}
+      {done && solution && <div className="coach-solution"><div className="coach-solution-label"><span>{solution.kind === 'accepted' ? 'Твой вариант' : 'Продолжение'}</span>{solution.kind === 'accepted' && solution.reference_move && <span title="Эталонный ход исходной задачи. Твой ход тоже принят.">Эталон: {solution.reference_move.san}</span>}<span>{shownReplay} / {totalReplay}</span></div><div className="coach-solution-moves" tabIndex={0} aria-label="Ходы решения">{solution.moves.map((item, index) => <button key={`${index}-${item.uci}`} className={shownReplay === index + 1 ? 'current' : ''} onClick={() => seek(index + 1)} aria-label={`Показать ход ${item.san}`}>{item.san}</button>)}</div></div>}
       <div className="coach-session-detail"><span>{attempt.mistakes ? `Ошибок: ${attempt.mistakes}` : 'Без ошибок'} · {attempt.hints_used ? 'С подсказкой' : 'Без подсказки'}</span>{done && safeLink(attempt.source.game_url) && <a href={attempt.source.game_url} target="_blank" rel="noreferrer" aria-label="Открыть партию"><ExternalLink size={15} /></a>}</div>
     </aside></div>
     <footer className="coach-session-actions" role="group" aria-label="Действия в занятии"><div className="coach-session-actions-inner">{done ? <>

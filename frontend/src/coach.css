@@ -200,7 +200,7 @@
 .coach-session-detail a { display: flex; padding: 6px; color: #678454; }
 /* Keep a long unwrapped variation inside its own scroller, not the lesson's intrinsic width. */
 .coach-solution { min-width: 0; max-width: 100%; padding-top: 14px; flex-shrink: 0; }
-.coach-solution-label { display: flex; justify-content: space-between; font-size: 10px; color: #6a7b60; margin-bottom: 8px; }
+.coach-solution-label { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; font-size: 10px; color: #6a7b60; margin-bottom: 8px; }
 .coach-solution-moves { min-width: 0; max-width: 100%; display: flex; align-content: flex-start; gap: 6px; flex-wrap: wrap; max-height: 92px; overflow: auto; scrollbar-width: thin; padding: 2px; }
 .coach-solution-moves > button { min-width: 38px; min-height: 33px; font-size: 12px; background: #f0f4e8; color: #4c693d; border: 1px solid #e1e8d7; border-radius: 6px; padding: 6px 8px; }
 .coach-solution-moves > button.current { background: #dae9c7; border-color: #9fba86; color: #36552c; }

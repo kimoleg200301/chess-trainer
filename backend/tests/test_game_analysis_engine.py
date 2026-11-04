@@ -83,17 +83,46 @@ def test_bounded_alternative_gets_separate_search():
     assert engine.played_searches==1
     assert result['assessed'] and result['category']=='excellent' and result['accuracy']>97
 
+
+def test_separately_checked_candidate_keeps_its_own_replay_when_root_prefers_third_move():
+    class ThirdMove:
+        def __init__(self): self.candidates = []
+
+        def analyse(self, board, *args, **kwargs):
+            if kwargs.get('root_moves'):
+                self.candidates.append([move.uci() for move in kwargs['root_moves']])
+                return info(board, 'd2d4', cp=15, pv=['d2d4', 'd7d5', 'c2c4', 'e7e6'])
+            return [info(board, 'c2c4', cp=20, pv=['c2c4', 'e7e5']),
+                    info(board, 'e2e4', cp=18, pv=['e2e4', 'c7c5'])]
+
+    engine = ThirdMove()
+    result = analyse_game_move(game_with('d2d4'), 0, engine)
+    assert result['assessed'] and result['expected_loss'] < .03
+    assert engine.candidates == [['d2d4']]
+    assert result['best_uci'] == 'c2c4'
+    assert result['best_line_uci'] == ['c2c4', 'e7e5']
+    assert result['played_line_uci'] == ['d2d4', 'd7d5', 'c2c4', 'e7e6']
+    assert result['played_line_san'] == ['d4', 'd5', 'c4', 'e6']
+    board = chess.Board(result['before_fen'])
+    board.push_uci(result['played_line_uci'][0])
+    assert board.fen() == result['after_fen']
+
+
 def test_error_rechecked_and_deeper_search_can_remove_it():
     class CorrectedError:
         options={'Clear Hash':object()}
         def __init__(self):self.roots=0;self.clears=0
         def configure(self,_):self.clears+=1
         def analyse(self,board,*args,**kwargs):
-            if kwargs.get('root_moves'):return info(board,'e2e4',cp=-500 if self.roots==1 else 0)
+            if kwargs.get('root_moves'):
+                return info(board,'e2e4',cp=-500 if self.roots==1 else 0,
+                            pv=['e2e4', 'e7e5' if self.roots==1 else 'c7c5'])
             self.roots+=1;return [info(board,'d2d4',cp=0),info(board,'c2c4',cp=-10)]
     engine=CorrectedError();result=analyse_game_move(game_with('e2e4'),0,engine)
     assert engine.roots==2 and engine.clears==1
     assert result['category']=='excellent' and result['accuracy']==100 and result['expected_loss']==0
+    assert result['played_line_uci'] == ['e2e4', 'c7c5']
+    assert result['played_line_san'] == ['e4', 'c5']
 
 def test_disagreement_not_presented_as_perfect_accuracy():
     class Disagreement:
@@ -135,6 +164,8 @@ def test_forced_and_immediate_mate_need_no_engine_and_have_different_denominator
     assert forced['category']=='forced' and forced['accuracy'] is None and forced['assessed']
     assert mate['category']=='best' and mate['accuracy']==100
     assert mate['mate_after']==1 and mate['brilliant_evidence'] is None
+    assert forced['played_line_uci'] == [game['moves'][31]]
+    assert mate['played_line_uci'] == ['d1d8'] and mate['played_line_san'] == ['Rd8#']
 
 def test_stalemate_loses_forced_win_instead_of_being_scored_mate():
     game=game_with('g6f5','7k/5K2/6Q1/8/8/8/8/8 w - - 0 1')
