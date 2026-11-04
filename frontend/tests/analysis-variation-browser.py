@@ -39,7 +39,7 @@ def check_line(browser, width):
     context,page,errors,posts,games,reports,partial = review.setup(browser,width)
     selected = reports[0]['moves'][1]
     selected.update(best_uci='e7e5',best_line_uci=['e7e5','g1f3','b8c6','f1b5'],best_line_san=['stale SAN'])
-    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player1 — Opponent1',exact=True).click()
     page.locator('.review-move-list [data-ply="1"]').click()
     piece(page,'d5','bP');badge(page,'d5','mistake')
     board_before = page.locator('.analysis-position-board').evaluate('(el)=>{const r=el.getBoundingClientRect();return [r.x,r.y+scrollY,r.width,r.height]}')
@@ -106,7 +106,7 @@ def check_special(browser):
         reports[0]['moves'][0].update({key:value for key,value in case.items() if key!='name'})
         reports[0].update(moves=reports[0]['moves'][:1],cursor=1,total_plies=1)
         reports[0]['game']['initial_fen']=case['before_fen']
-        page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+        page.get_by_role('link',name='Открыть партию Player1 — Opponent1',exact=True).click()
         page.locator('.review-move-list [data-ply="0"]').click()
         page.get_by_role('button',name='Лучший вариант',exact=True).click()
         if case['name']=='castle':
@@ -133,7 +133,7 @@ def check_missing_and_invalid(browser):
     reports[0]['moves'][0]['best_line_uci']=['e2e4','invalid','e7e5']
     reports[0]['moves'][1]['best_line_uci']=['e7e4']
     reports[0]['moves'][2]['best_line_uci']=[]
-    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player1 — Opponent1',exact=True).click()
     expect(page.get_by_role('button',name='Лучший вариант',exact=True)).to_be_disabled()
     page.locator('.review-move-list [data-ply="0"]').click()
     page.get_by_role('button',name='Лучший вариант',exact=True).click()

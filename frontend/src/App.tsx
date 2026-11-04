@@ -15,6 +15,7 @@ import { useScreenWakeLock } from './useScreenWakeLock';
 import { formatDuration } from './time';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
+import { captureNavigation, Link, loginDestination, navigate, pageForPath, useRoute } from './router';
 import type { Analysis, Attempt, Meta, Reveal, SavedTraining, Stats } from './api';
 
 const fmt = new Intl.NumberFormat('ru-RU');
@@ -160,7 +161,6 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     setReveal(current.status === 'revealed' ? { ...saved, attempt: current } : null);
     setReplayIndex(0); setReplayPlaying(false); setHintSquare(null); setAnalysis(null); setPlayback(null);
     setCollectionFinished(null); setFeedback(''); setFeedbackKind('neutral'); setError('');
-    onScreenChange('session');
   }
   useEffect(() => {
     let active = true;
@@ -174,7 +174,8 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   async function resumeTraining() {
     if (!attempt || actionPending.current) return;
     actionPending.current = true; setBusy(true); setError('');
-    try { const saved = await api<SavedTraining>(`/training/${attempt.id}/resume`, {}); if (mounted.current) restoreTraining(saved); }
+    const isCurrent = captureNavigation();
+    try { const saved = await api<SavedTraining>(`/training/${attempt.id}/resume`, {}); if (mounted.current) { restoreTraining(saved); if (isCurrent()) onScreenChange('session'); } }
     catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { actionPending.current = false; if (mounted.current) setBusy(false); }
   }
@@ -251,6 +252,12 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     void start(true, launch.puzzleId, launch.collection).finally(onLaunchHandled);
   }, [launch, visible, restoring]);
 
+  useEffect(() => {
+    if (visible && screen === 'session' && !restoring && !restoreError && !attempt && !collectionFinished && !busy) {
+      navigate('/', { replace: true });
+    }
+  }, [visible, screen, restoring, restoreError, attempt, collectionFinished, busy]);
+
   async function start(newSession = false, puzzleId?: string, source = collection) {
     if (actionPending.current || analysisBusy || restoring) return;
     // Hidden settings from another collection must never restrict personal tasks.
@@ -258,6 +265,7 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     const unfiltered = source === 'personal' || ratedSelection || !!puzzleId;
     if (!unfiltered && minRating > maxRating) { setError('Нижняя граница рейтинга должна быть не выше верхней.'); return; }
     actionPending.current = true;
+    const isCurrent = captureNavigation();
     timer.pause();
     if (puzzleId) { setTheme(''); setMode('practice'); }
     setReplayPlaying(false); setCollectionFinished(null); setBusy(true); setError('');
@@ -266,13 +274,15 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
       if (!mounted.current) return;
       setAttempt(data); setInitialFen(data.starting_fen || data.fen); setReplayIndex(0); setHintSquare(null); setReveal(null); setAnalysis(null); setFeedback(''); setFeedbackKind('neutral'); setPlayback(null); setTimeSaveFailed(false);
       if (newSession) setSessionSolved(0);
-      onScreenChange('session');
-      window.scrollTo({ top: 0, behavior: 'instant' });
+      if (isCurrent()) {
+        onScreenChange('session');
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      }
     } catch (err) {
       if (mounted.current) {
         if (err instanceof ApiError && err.code === 'personal_collection_complete') {
           playSound('complete');
-          setCollectionFinished(source === 'personal' ? 'Все задачи из ваших партий пройдены. Добавьте новые партии или откройте знакомую задачу для повторного разбора в разделе «Мои партии».' : err.message); onScreenChange('session'); onChanged();
+          setCollectionFinished(source === 'personal' ? 'Все задачи из ваших партий пройдены. Добавьте новые партии или откройте знакомую задачу для повторного разбора в разделе «Мои партии».' : err.message); if (isCurrent()) onScreenChange('session'); onChanged();
         } else if (err instanceof ApiError && err.code === 'personal_current_remaining') {
           setFeedback(err.message); setFeedbackKind('neutral'); setFeedbackVersion(value => value + 1);
         } else setError(errorText(err));
@@ -356,8 +366,8 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
   if (restoring) return <div className="restore-training" role="status"><Spinner /> Восстанавливаем последнюю позицию…</div>;
-  if (restoreError) return <div className="restore-training"><ErrorNotice message={restoreError} /><button className="button secondary" onClick={() => setRestoreVersion(value => value + 1)}>Повторить загрузку последней задачи</button></div>;
-  if (collectionFinished) return <section className="training-finished" aria-label="Тренировка завершена">
+  if (restoreError) return <div className="restore-training"><ErrorNotice message={restoreError} /><button className="button secondary" onClick={() => setRestoreVersion(value => value + 1)}>Повторить загрузку последней задачи</button>{screen === 'session' && <Link className="text-button" href="/">На главную</Link>}</div>;
+  if (screen === 'session' && collectionFinished) return <section className="training-finished" aria-label="Тренировка завершена">
     <span className="training-finished-icon"><CheckCircle2 size={36} /></span>
     <p className="training-finished-title">Все выбранные задачи пройдены</p>
     <p role="status">{collectionFinished}</p>
@@ -414,10 +424,12 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
 
 export default function App() {
   useEffect(listenForSoundGestures, []);
+  const { pathname, searchParams } = useRoute();
+  const tab = pageForPath(pathname);
+  const trainingScreen = pathname === '/training' ? 'session' : 'setup';
+  const setTrainingScreen = (screen: 'setup' | 'session') => navigate(screen === 'session' ? '/training' : '/');
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'training' | 'stats' | 'library' | 'analysis' | 'coach'>('training');
-  const [trainingScreen, setTrainingScreen] = useState<'setup' | 'session'>('setup');
   const [analysisFocused, setAnalysisFocused] = useState(false);
   const [coachFocused, setCoachFocused] = useState(false);
   const inSession = (tab === 'training' && trainingScreen === 'session') || (tab === 'analysis' && analysisFocused) || (tab === 'coach' && coachFocused);
@@ -439,23 +451,60 @@ export default function App() {
   }, [collection]);
   const changeCollection = (value: string) => { if (value !== collection) { catalogVersion.current++; setMeta(null); setCollection(value); } };
   function practicePuzzle(puzzleId: string, source: string) {
-    changeCollection(source); setTrainingScreen('setup'); setTab('training');
+    changeCollection(source); navigate('/');
     setPracticeLaunch({ token: Date.now(), puzzleId, collection: source });
   }
   const refreshStats = useCallback(async () => { setStatsBusy(true); try { setStats(await api<Stats>('/stats')); } catch (err) { setError(errorText(err)); } finally { setStatsBusy(false); } }, []);
   useEffect(() => {
     let active = true;
     api<{ username: string }>('/auth/me').then(data => { if (active) setUser(data.username); }).catch(err => { if (active && !(err instanceof ApiError && err.status === 401)) setError(errorText(err)); }).finally(() => { if (active) setLoading(false); });
-    const expired = () => { setUser(null); setMeta(null); setStats(null); setTrainingScreen('setup'); setPracticeLaunch(null); setCollection('lichess'); catalogVersion.current++; };
+    const expired = () => { setUser(null); setMeta(null); setStats(null); setPracticeLaunch(null); setCollection('lichess'); catalogVersion.current++; };
     window.addEventListener('session-expired', expired);
     return () => { active = false; window.removeEventListener('session-expired', expired); };
   }, []);
+  useEffect(() => {
+    if (loading) return;
+    if (!user && tab !== 'login') {
+      navigate(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`, { replace: true });
+    } else if (user && tab === 'login') {
+      navigate(loginDestination(searchParams.get('next')), { replace: true });
+    }
+  }, [loading, user, pathname, tab, searchParams]);
+  useEffect(() => {
+    const titles = { training: trainingScreen === 'session' ? 'Тренировка' : 'Главная', stats: 'Прогресс', library: 'Мои партии', analysis: 'Анализ партий', coach: 'Личный тренер', login: 'Вход', 'not-found': 'Страница не найдена' };
+    document.title = `${titles[tab]} — Тактика`;
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [pathname, tab, trainingScreen]);
   useEffect(() => { if (user) { void refreshCatalog(); void refreshStats(); } }, [user, refreshStats, refreshCatalog]);
-  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); catalogVersion.current++; setCollection('lichess'); setUser(null); setMeta(null); setStats(null); setError(''); setTrainingScreen('setup'); setTab('training'); setPracticeLaunch(null); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
+  useEffect(() => { if (user && tab === 'stats') void refreshStats(); }, [user, tab, refreshStats]);
+  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); catalogVersion.current++; setCollection('lichess'); setUser(null); setMeta(null); setStats(null); setError(''); setPracticeLaunch(null); navigate('/login', { replace: true }); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
   if (loading) return <div className="app-loading"><Brand subtitle /><Spinner /><p>Готовим доску…</p></div>;
-  if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); setTrainingScreen('setup'); setTab('training'); setPracticeLaunch(null); }} />;
-  return <div className={`app-shell ${inSession ? 'session-shell' : ''} ${tab === 'coach' && coachFocused ? 'coach-practice-shell' : ''}`}>{!inSession && <header className="header"><div className="header-inner"><a href="#" className="brand-link" onClick={event => { event.preventDefault(); setTab('training'); }} aria-label="Тактика — главная"><Brand /></a><nav aria-label="Главная навигация"><button className={tab === 'training' ? 'active' : ''} onClick={() => setTab('training')}><Target size={16} />Главная</button><button className={tab === 'coach' ? 'active' : ''} onClick={() => setTab('coach')}><GraduationCap size={16} />Тренер</button><button className={tab === 'stats' ? 'active' : ''} onClick={() => { setTab('stats'); void refreshStats(); }}><TrendingUp size={16} />Прогресс</button><button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}><Library size={16} />Мои партии</button><button className={tab === 'analysis' ? 'active' : ''} onClick={() => setTab('analysis')}><BarChart3 size={16} />Анализ</button></nav><div className="account"><SoundToggle /><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div></div></header>}
-    <main className="main-content">{error && !(tab === 'coach' && coachFocused) && <ErrorNotice message={error} close={() => setError('')} />}{!meta && tab === 'training' && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}<div hidden={tab !== 'training'}>{trainingScreen === 'setup' && <button className="coach-entry" onClick={() => setTab('coach')}><GraduationCap size={23} /><div><strong>Личный тренер</strong><small>Твои партии, отдельный план для каждого навыка и прогресс в новых играх.</small></div><ArrowRight size={18} /></button>}<Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} screen={trainingScreen} onScreenChange={setTrainingScreen} collection={collection} onCollectionChange={changeCollection} launch={practiceLaunch} onLaunchHandled={() => setPracticeLaunch(null)} onOpenLibrary={() => setTab('library')} /></div>{tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}<div hidden={tab !== 'library'}><GameLibrary visible={tab === 'library'} onChanged={refreshCatalog} onPractice={practicePuzzle} /></div><div hidden={tab !== 'analysis'}><GameAnalysis visible={tab === 'analysis'} onDataChanged={refreshCatalog} onFocusChange={setAnalysisFocused} /></div><div hidden={tab !== 'coach'}><PersonalCoach visible={tab === 'coach'} onFocusChange={setCoachFocused} /></div></main>
+  if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); setPracticeLaunch(null); navigate(loginDestination(searchParams.get('next')), { replace: true }); }} />;
+  return <div className={`app-shell ${inSession ? 'session-shell' : ''} ${tab === 'coach' && coachFocused ? 'coach-practice-shell' : ''}`}>
+    {!inSession && <header className="header"><div className="header-inner">
+      <Link href="/" className="brand-link" aria-label="Тактика — главная"><Brand /></Link>
+      <nav aria-label="Главная навигация">{[
+        { page: 'training', href: '/', icon: <Target size={16} />, label: 'Главная' },
+        { page: 'coach', href: '/coach', icon: <GraduationCap size={16} />, label: 'Тренер' },
+        { page: 'stats', href: '/progress', icon: <TrendingUp size={16} />, label: 'Прогресс' },
+        { page: 'library', href: '/games', icon: <Library size={16} />, label: 'Мои партии' },
+        { page: 'analysis', href: '/analysis', icon: <BarChart3 size={16} />, label: 'Анализ' },
+      ].map(item => <Link key={item.page} href={item.href} className={tab === item.page ? 'active' : ''} aria-current={tab === item.page ? 'page' : undefined}>{item.icon}{item.label}</Link>)}</nav>
+      <div className="account"><SoundToggle /><span className="avatar">{user.slice(0, 1).toUpperCase()}</span><span className="username">{user}</span><button className="icon-button" title="Выйти" aria-label="Выйти" disabled={logoutBusy} onClick={logout}>{logoutBusy ? <Spinner /> : <LogOut size={17} />}</button></div>
+    </div></header>}
+    <main className="main-content">
+      {error && !(tab === 'coach' && coachFocused) && <ErrorNotice message={error} close={() => setError('')} />}
+      {!meta && tab === 'training' && <div className="catalog-status"><span>{catalogBusy ? 'Загружаем библиотеку задач…' : 'Библиотека задач не загружена.'}</span><button className="text-button" disabled={catalogBusy} onClick={refreshCatalog}>{catalogBusy ? <Spinner /> : <RotateCcw size={14} />}Повторить загрузку</button></div>}
+      <div hidden={tab !== 'training'}>
+        {trainingScreen === 'setup' && <Link href="/coach" className="coach-entry"><GraduationCap size={23} /><div><strong>Личный тренер</strong><small>Твои партии, отдельный план для каждого навыка и прогресс в новых играх.</small></div><ArrowRight size={18} /></Link>}
+        <Trainer meta={meta} stats={stats} onChanged={refreshStats} visible={tab === 'training'} screen={trainingScreen} onScreenChange={setTrainingScreen} collection={collection} onCollectionChange={changeCollection} launch={practiceLaunch} onLaunchHandled={() => setPracticeLaunch(null)} onOpenLibrary={() => navigate('/games')} />
+      </div>
+      {tab === 'stats' && <StatsPage stats={stats} busy={statsBusy} refresh={refreshStats} />}
+      <div hidden={tab !== 'library'}><GameLibrary visible={tab === 'library'} onChanged={refreshCatalog} onPractice={practicePuzzle} /></div>
+      <div hidden={tab !== 'analysis'}><GameAnalysis visible={tab === 'analysis'} onDataChanged={refreshCatalog} onFocusChange={setAnalysisFocused} /></div>
+      <div hidden={tab !== 'coach'}><PersonalCoach visible={tab === 'coach'} onFocusChange={setCoachFocused} /></div>
+      {tab === 'not-found' && <section className="panel"><Empty icon={<CircleHelp />} title="Страница не найдена">Проверьте адрес или вернитесь на главную.</Empty><Link className="button primary" href="/">На главную</Link></section>}
+    </main>
     {!inSession && <footer className="footer"><span>тактика<span className="brand-dot">.</span> <span className="footer-separator">/</span> Практика, которая остаётся с вами.</span><span><a href="https://database.lichess.org/#puzzles" target="_blank" rel="noreferrer">Открытая база Lichess · CC0</a><span className="footer-separator">·</span><a href="/pieces/NOTICE.txt" target="_blank" rel="noreferrer">Фигуры</a></span></footer>}
   </div>;
 }

@@ -202,7 +202,7 @@ def check(browser, width, height):
     page.route('**/api/**', respond)
     page.route('https://fonts.googleapis.com/**', lambda route: route.abort())
     page.goto(BASE)
-    page.get_by_role('button', name='Тренер', exact=True).click()
+    page.get_by_role('link', name='Тренер', exact=True).click()
     expect(page.get_by_role('textbox', name='Ник на Chess.com')).to_have_value('kimskiy1114')
     expect(page.get_by_label('Контроль времени', exact=True)).to_have_value('300+5')
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -279,14 +279,14 @@ def check(browser, width, height):
     page.get_by_role('tab', name='План', exact=True).click()
     expect(page.get_by_role('button', name='Продолжить занятие', exact=True)).to_be_visible()
     old_posts = len([p for p in posts if p[0] == '/coach/pause'])
-    page.get_by_role('button', name='Главная', exact=True).click()
-    page.get_by_role('button', name='Тренер', exact=True).click()
+    page.get_by_role('link', name='Главная', exact=True).click()
+    page.get_by_role('link', name='Тренер', exact=True).click()
     assert len([p for p in posts if p[0] == '/coach/pause']) == old_posts
     page.get_by_role('button', name='Продолжить занятие', exact=True).click()
     assert attempt['id'] == current_id
     page.get_by_role('button', name='К плану', exact=True).click()
     page.reload()
-    page.get_by_role('button', name='Тренер', exact=True).click()
+    page.get_by_role('link', name='Тренер', exact=True).click()
     page.get_by_role('button', name='Продолжить занятие', exact=True).click()
     expect(page.get_by_role('region', name='Занятие с личным тренером')).to_be_visible()
     assert attempt['id'] == current_id
@@ -403,7 +403,7 @@ def check_autosave_actions(browser):
         page.route('https://fonts.googleapis.com/**', lambda route: route.abort())
         try:
             page.goto(BASE)
-            page.get_by_role('button', name='Тренер', exact=True).click()
+            page.get_by_role('link', name='Тренер', exact=True).click()
             page.get_by_role('button', name='Продолжить занятие', exact=True).click()
             expect(page.get_by_role('region', name='Занятие с личным тренером')).to_be_visible()
             page.wait_for_timeout(120)

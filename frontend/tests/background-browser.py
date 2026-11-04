@@ -18,6 +18,7 @@ const {default: {createRoot}} = await import('/node_modules/.vite/deps/react-dom
 const {useAttemptTimer} = await import('/src/useAttemptTimer.ts');
 const {default: GameLibrary} = await import('/src/GameLibrary.tsx');
 const {default: GameAnalysis} = await import('/src/GameAnalysis.tsx');
+const {navigate} = await import('/src/router.tsx');
 window.clockNow = Date.now(); Date.now = () => window.clockNow;
 window.setHidden = hidden => {
   Object.defineProperty(document, 'visibilityState', {configurable: true, value: hidden ? 'hidden' : 'visible'});
@@ -27,7 +28,13 @@ window.saves = [];
 function Harness() {
   const [options, setOptions] = React.useState({attemptId: 1, elapsedMs: 1200, running: true});
   const [screen, setScreen] = React.useState('timer');
-  window.options = patch => setOptions(old => ({...old, ...patch})); window.screen = setScreen;
+  const paths = React.useRef({library: '/games/1', analysis: '/analysis'});
+  window.options = patch => setOptions(old => ({...old, ...patch}));
+  window.screen = next => {
+    if (screen !== 'timer') paths.current[screen] = location.pathname;
+    if (next !== 'timer') navigate(paths.current[next]);
+    setScreen(next);
+  };
   const timer = useAttemptTimer({...options, onPersist: (id, value, keepalive) => window.saves.push({id, value, keepalive})});
   window.snapshot = timer.snapshot;
   return React.createElement(React.Fragment, null,
@@ -110,7 +117,7 @@ def run():
         print('PASS library: server resume, no pause/step on hide or navigation, restored completion, background restart')
 
         page.evaluate("screen('analysis')")
-        page.get_by_role('button', name='Открыть партию Tester — Opponent', exact=True).click()
+        page.get_by_role('link', name='Открыть партию Tester — Opponent', exact=True).click()
         page.get_by_role('button', name='Анализировать партию', exact=True).click()
         expect(page.get_by_role('button', name='Пауза', exact=True)).to_be_visible()
         assert posts[-1] == ('/game-analysis', {'game_id':1, 'background':True})

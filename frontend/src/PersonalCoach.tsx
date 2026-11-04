@@ -12,6 +12,7 @@ import { useAttemptTimer } from './useAttemptTimer';
 import { useScreenWakeLock } from './useScreenWakeLock';
 import { formatDuration } from './time';
 import { playSound } from './sound';
+import { captureNavigation, Link, navigate, useRoute } from './router';
 import './coach.css';
 
 const controls = [
@@ -22,6 +23,7 @@ const labels = { focus: 'В приоритете', reinforce: 'Закрепля�
 const statusLabels = { loading: 'Собираем партии', analysing: 'Анализируем ходы', tracking: 'Следим за новыми партиями', paused: 'Тренер на паузе', error: 'Нужно продолжить обработку' };
 const panelLabels = { plan: 'План', skills: 'Навыки', progress: 'Прогресс', games: 'Партии' };
 type Panel = keyof typeof panelLabels;
+const panelPath = (panel: Panel, skill = '') => `${panel === 'plan' ? '/coach' : `/coach/${panel}`}${skill && (panel === 'skills' || panel === 'progress') ? `?skill=${encodeURIComponent(skill)}` : ''}`;
 const safeLink = (url: string) => /^https:\/\/(?:www\.)?(?:chess\.com|lichess\.org)\//.test(url);
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Не удалось выполнить действие. Попробуйте ещё раз.';
 const dateLabel = (value: string | null, includeTime = false) => {
@@ -102,19 +104,29 @@ function EvidenceCard({ evidence, index, total, busy, onChange, onPractice }: { 
 }
 
 export default function PersonalCoach({ visible, onFocusChange }: { visible: boolean; onFocusChange: (focused: boolean) => void }) {
+  const { pathname, searchParams } = useRoute();
+  const practiceMatch = /^\/coach\/practice\/([1-9]\d*)$/.exec(pathname);
+  const practiceId = practiceMatch && Number.isSafeInteger(Number(practiceMatch[1])) ? Number(practiceMatch[1]) : null;
+  const screen = practiceId === null ? 'dashboard' : 'practice';
+  const panel: Panel = pathname === '/coach/skills' ? 'skills' : pathname === '/coach/progress' ? 'progress' : pathname === '/coach/games' ? 'games' : 'plan';
+  const selectedSkill = searchParams.get('skill') || '';
+  const editingSetup = pathname === '/coach/settings';
+  const setPanel = (next: Panel) => navigate(panelPath(next, selectedSkill));
+  const setSelectedSkill = (skill: string) => navigate(panelPath(panel, skill));
   const [dashboard, setDashboard] = useState<CoachDashboard | null>(null);
   const [loading, setLoading] = useState(false);
-  const [editingSetup, setEditingSetup] = useState(false);
   const [error, setError] = useState('');
   const [fetchError, setFetchError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
-  const [screen, setScreen] = useState<'dashboard' | 'practice'>('dashboard');
-  const [panel, setPanel] = useState<Panel>('plan');
-  const [selectedSkill, setSelectedSkill] = useState('');
   const [evidenceIndex, setEvidenceIndex] = useState(0);
   const [gameCohort, setGameCohort] = useState<'baseline' | 'followup'>('followup');
   const [gamePage, setGamePage] = useState(0);
   const [attempt, setAttempt] = useState<CoachAttempt | null>(null);
+  const [attemptLoading, setAttemptLoading] = useState(false);
+  const [attemptError, setAttemptError] = useState('');
+  const [attemptRetry, setAttemptRetry] = useState(0);
+  const preparedAttempt = useRef<number | null>(null);
+  const attemptRevisions = useRef(new Map<number, number>());
   const [hintSquare, setHintSquare] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const [feedbackKind, setFeedbackKind] = useState<'neutral' | 'success' | 'wrong'>('neutral');
@@ -142,6 +154,23 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   }, []);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { if (visible) void refresh(); }, [visible, refresh]);
+  useEffect(() => {
+    if (!visible || practiceId === null) return;
+    setAttemptError('');
+    if (preparedAttempt.current === practiceId && currentAttempt.current?.id === practiceId) {
+      preparedAttempt.current = null; setAttemptLoading(false); return;
+    }
+    let active = true;
+    const revision = attemptRevisions.current.get(practiceId);
+    setAttemptLoading(true); setReplayPlaying(false); setError('');
+    void coachApi.attempt(practiceId).then(result => {
+      if (!active || attemptRevisions.current.get(practiceId) !== revision) return;
+      setAttempt(result); setFeedback(result.feedback || ''); setFeedbackKind('neutral');
+      setHintSquare(null); setReplayIndex(initialReplayIndex(result)); setTimeError(false);
+    }).catch(err => { if (active) setAttemptError(errorText(err)); })
+      .finally(() => { if (active) setAttemptLoading(false); });
+    return () => { active = false; };
+  }, [visible, practiceId, attemptRetry]);
   const activelyAnalysing = !!dashboard?.profile?.active && (['loading', 'analysing'].includes(dashboard.profile.status) || dashboard.profile.syncing);
   useBackgroundRefresh(refresh, visible && screen === 'dashboard' && activelyAnalysing);
   useEffect(() => {
@@ -153,7 +182,7 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   }, [visible, screen, dashboard?.profile?.active, activelyAnalysing, refresh]);
   useEffect(() => { onFocusChange(screen === 'practice'); return () => onFocusChange(false); }, [screen, onFocusChange]);
   useEffect(() => { if (!visible || screen !== 'practice') setReplayPlaying(false); }, [visible, screen]);
-  useEffect(() => { if (visible && screen === 'practice') { window.scrollTo({ top: 0, behavior: 'instant' }); sessionBack.current?.focus({ preventScroll: true }); } }, [visible, screen]);
+  useEffect(() => { if (visible && screen === 'practice') { window.scrollTo({ top: 0, behavior: 'instant' }); sessionBack.current?.focus({ preventScroll: true }); } }, [visible, screen, practiceId]);
   useEffect(() => { setEvidenceIndex(0); }, [selectedSkill]);
   const persistTime = useCallback((id: number, elapsed: number, keepalive: boolean) => {
     // Actions carry elapsed_ms themselves and must not compete with autosave for the user lock.
@@ -166,8 +195,8 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
       .finally(() => { timeSaves.current.delete(request); });
     timeSaves.current.add(request);
   }, []);
-  const timer = useAttemptTimer({ attemptId: attempt?.id ?? null, elapsedMs: attempt?.elapsed_ms ?? null, running: visible && screen === 'practice' && attempt?.status === 'active' && !busy, onPersist: persistTime });
-  useScreenWakeLock(visible && screen === 'practice' && !!attempt);
+  const timer = useAttemptTimer({ attemptId: attempt?.id ?? null, elapsedMs: attempt?.elapsed_ms ?? null, running: visible && attempt?.id === practiceId && attempt?.status === 'active' && !attemptLoading && !attemptError && !busy, onPersist: persistTime });
+  useScreenWakeLock(visible && attempt?.id === practiceId && !!attempt && !attemptLoading && !attemptError);
   const checkingMove = busy === 'move';
   const done = !!attempt && attempt.status !== 'active';
   const solution = done ? attempt.solution : null;
@@ -188,15 +217,16 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
       collection: attempt.source.own_game ? 'personal' : 'lichess', rating_estimated: false };
   }, [attempt, replayIndex]);
   useEffect(() => {
-    if (!replayPlaying || !solution || !visible || screen !== 'practice') return;
+    if (!replayPlaying || !solution || !visible || attempt?.id !== practiceId || attemptLoading || attemptError) return;
     const startedAt = Date.now(), startIndex = replayIndex ?? 0;
     const step = () => { const index = Math.min(solution.moves.length, startIndex + Math.floor((Date.now() - startedAt) / 1000)); setReplayIndex(index); if (index >= solution.moves.length) setReplayPlaying(false); };
     const interval = window.setInterval(step, 100);
     return () => window.clearInterval(interval);
-  }, [replayPlaying, solution, visible, screen]);
+  }, [replayPlaying, solution, visible, practiceId, attempt?.id, attemptLoading, attemptError]);
   function seek(index: number) { setReplayPlaying(false); setReplayIndex(Math.min(totalReplay, Math.max(0, index))); }
   function toggleReplay() { if (replayPlaying) setReplayPlaying(false); else { if (replayIndex == null || shownReplay >= totalReplay) setReplayIndex(0); setReplayPlaying(true); } }
   function acceptAttempt(value: CoachAttempt) {
+    attemptRevisions.current.set(value.id, (attemptRevisions.current.get(value.id) || 0) + 1);
     setAttempt(value);
     setReplayIndex(initialReplayIndex(value));
     if (value.status !== 'active' && !finished.current.has(value.id)) {
@@ -204,39 +234,45 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
       if (value.status === 'completed' && !value.mistakes && !value.hints_used) setSessionClean(count => count + 1);
     }
   }
-  async function action(name: string, operation: () => Promise<void>) {
+  async function action(name: string, operation: (isCurrent: () => boolean) => Promise<void>) {
     if (actionPending.current) return;
+    const unchanged = captureNavigation();
+    const isCurrent = () => mounted.current && unchanged();
     actionPending.current = true; ++fetchVersion.current; setBusy(name); setLoading(false); setError('');
     try {
       // timer.pause() may just have sent a save; settle every earlier save before mutating.
       await Promise.allSettled([...timeSaves.current]);
-      if (mounted.current) await operation();
-    } catch (err) { if (mounted.current) setError(errorText(err)); }
+      if (isCurrent()) await operation(isCurrent);
+    } catch (err) { if (isCurrent()) setError(errorText(err)); }
     finally { actionPending.current = false; if (mounted.current) setBusy(null); }
   }
-  async function startCoach(username: string, control: string) { await action('start', async () => { setDashboard(await coachApi.start(username, control)); setEditingSetup(false); }); }
-  async function controlCoach(operation: 'pause' | 'resume' | 'sync') { await action(operation, async () => setDashboard(await coachApi.control(operation))); }
+  async function startCoach(username: string, control: string) { await action('start', async isCurrent => { const result = await coachApi.start(username, control); if (!mounted.current) return; setDashboard(result); if (isCurrent()) navigate('/coach'); }); }
+  async function controlCoach(operation: 'pause' | 'resume' | 'sync') { await action(operation, async () => { const result = await coachApi.control(operation); if (mounted.current) setDashboard(result); }); }
   async function practice(options: CoachPracticeOptions = {}, newSession = true) {
     timer.pause();
-    await action('practice', async () => {
+    await action('practice', async isCurrent => {
       const result = await coachApi.practice(options);
+      if (!isCurrent()) return;
       if (newSession) { finished.current.clear(); setSessionCount(0); setSessionClean(0); }
       setSessionSummary(false); setAttempt(result); setFeedback(result.feedback || ''); setFeedbackKind('neutral');
-      setHintSquare(null); setReplayIndex(null); setReplayPlaying(false); setTimeError(false); setScreen('practice');
+      setHintSquare(null); setReplayIndex(null); setReplayPlaying(false); setTimeError(false);
+      preparedAttempt.current = result.id; navigate(`/coach/practice/${result.id}`);
     });
   }
   async function resume() {
     const id = attempt?.status === 'active' ? attempt.id : dashboard?.active_attempt_id;
     if (!id) return;
-    await action('resume-practice', async () => { const result = await coachApi.attempt(id); setAttempt(result); setFeedback(result.feedback || ''); setHintSquare(null); setFeedbackKind('neutral'); setReplayIndex(initialReplayIndex(result)); setTimeError(false); setScreen('practice'); });
+    await action('resume-practice', async isCurrent => { const result = await coachApi.attempt(id); if (!isCurrent()) return; setAttempt(result); setFeedback(result.feedback || ''); setHintSquare(null); setFeedbackKind('neutral'); setReplayIndex(initialReplayIndex(result)); setTimeError(false); preparedAttempt.current = result.id; navigate(`/coach/practice/${result.id}`); });
   }
   async function move(uci: string) {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     const id = attempt.id, elapsed = timer.pause(), previousFen = attempt.fen;
-    await action('move', async () => {
+    await action('move', async isCurrent => {
       const result = await coachApi.move(id, uci, elapsed);
+      if (!mounted.current || currentAttempt.current?.id !== id) return;
       setTimeError(false);
       acceptAttempt(result.attempt); setFeedback(result.feedback); setFeedbackKind(result.accepted ? 'success' : 'wrong'); setHintSquare(null);
+      if (!isCurrent()) return;
       if (result.attempt.status === 'completed') playSound('complete');
       else if (result.accepted) { const board = new Chess(previousFen); playSound(board.move(uci)?.captured ? 'capture' : 'move'); }
       else playSound('wrong');
@@ -245,14 +281,14 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   async function hint() {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     const id = attempt.id, elapsed = timer.pause();
-    await action('hint', async () => { const result = await coachApi.hint(id, elapsed); setTimeError(false); setAttempt(result.attempt); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); });
+    await action('hint', async () => { const result = await coachApi.hint(id, elapsed); if (!mounted.current || currentAttempt.current?.id !== id) return; setTimeError(false); acceptAttempt(result.attempt); setHintSquare(result.from_square); setFeedback(result.message); setFeedbackKind('neutral'); });
   }
   async function reveal() {
     if (!attempt || attempt.status !== 'active' || actionPending.current) return;
     const id = attempt.id, elapsed = timer.pause();
-    await action('reveal', async () => { const result = await coachApi.reveal(id, elapsed); setTimeError(false); acceptAttempt(result); setHintSquare(null); setFeedback(result.feedback || 'Разбери продолжение и вернись к позиции в повторении.'); setFeedbackKind('neutral'); setReplayIndex(0); });
+    await action('reveal', async () => { const result = await coachApi.reveal(id, elapsed); if (!mounted.current || currentAttempt.current?.id !== id) return; setTimeError(false); acceptAttempt(result); setHintSquare(null); setFeedback(result.feedback || 'Разбери продолжение и вернись к позиции в повторении.'); setFeedbackKind('neutral'); setReplayIndex(0); });
   }
-  function leavePractice() { timer.pause(); setReplayPlaying(false); setScreen('dashboard'); setSessionSummary(sessionCount > 0); void refresh(); }
+  function leavePractice() { timer.pause(); setReplayPlaying(false); navigate('/coach'); setSessionSummary(sessionCount > 0); void refresh(); }
   const profile = dashboard?.profile;
   const skills = dashboard?.skills || [];
   const prioritySkills = (dashboard?.priorities || []).map(id => skills.find(skill => skill.id === id)).filter((skill): skill is CoachSkill => !!skill).slice(0, 3);
@@ -267,6 +303,11 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   const actualGamePage = Math.min(gamePage, maxGamePage);
   const currentEvidence = chosen?.evidence[Math.min(evidenceIndex, Math.max(0, chosen.evidence.length - 1))];
 
+  if (screen === 'practice' && (attemptLoading || attemptError || attempt?.id !== practiceId)) return <section className="coach-placeholder panel" aria-busy={attemptLoading || !attemptError}>
+    <button ref={sessionBack} className="text-button" onClick={leavePractice}><ArrowLeft size={18} />К плану</button>
+    <h1>{attemptError ? 'Не удалось открыть занятие' : 'Открываем занятие…'}</h1>
+    {attemptError ? <><Notice message={attemptError} /><button className="button secondary" onClick={() => setAttemptRetry(value => value + 1)}><RefreshCw size={16} />Повторить загрузку</button></> : <Spinner />}
+  </section>;
   if (screen === 'practice' && attempt) return <section className={`coach-session ${done ? 'coach-session-review' : ''}`} aria-label="Занятие с личным тренером">
     <header className="coach-session-toolbar"><button ref={sessionBack} className="text-button" onClick={leavePractice} disabled={!!busy}><ArrowLeft size={18} /><span>К плану</span></button><span className="coach-session-topic">{attempt.skill_title}</span><SoundToggle /></header>
     <div className="coach-session-layout"><div className="coach-session-board-column"><div className="coach-board-meta"><span><i className={`side-indicator ${attempt.learner_white ? '' : 'black-side'}`} />{attempt.learner_white ? 'Ход белых' : 'Ход чёрных'}</span><span className={`attempt-timer ${done ? 'finished' : ''}`} aria-label={`Время решения ${formatDuration(timer.elapsedMs)}`}><Clock3 size={14} />{formatDuration(timer.elapsedMs)}</span><span>{attempt.source.own_game ? 'Из твоей партии' : 'Учебная позиция'}</span></div>
@@ -287,17 +328,17 @@ export default function PersonalCoach({ visible, onFocusChange }: { visible: boo
   </section>;
 
   if (!dashboard) return <section className="coach-placeholder panel" aria-busy={loading}><GraduationCap size={32} /><h1>{loading ? 'Открываем личного тренера…' : 'Личный тренер'}</h1>{(error || fetchError) && <Notice message={error || fetchError} />}<button className="button secondary" onClick={() => void refresh()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw size={16} />}Обновить</button></section>;
-  if (!profile || editingSetup) return <Setup busy={!!busy} error={error || fetchError} initialUsername={profile?.username} initialControl={profile?.time_control} onCancel={profile ? () => setEditingSetup(false) : undefined} onStart={(username, control) => void startCoach(username, control)} />;
+  if (!profile || editingSetup) return <Setup busy={!!busy} error={error || fetchError} initialUsername={profile?.username} initialControl={profile?.time_control} onCancel={profile ? () => navigate('/coach') : undefined} onStart={(username, control) => void startCoach(username, control)} />;
 
   return <section className="coach-dashboard" aria-labelledby="coach-dashboard-title">
     <div className="coach-dashboard-heading"><div><span className="eyebrow"><GraduationCap size={15} /> ЛИЧНЫЙ ТРЕНЕР</span><h1 id="coach-dashboard-title">Игра становится практикой</h1><p><strong>{profile.username}</strong><span>·</span>{timeControlLabel(profile.time_control)}<span>·</span>с {dateLabel(profile.started_at)}</p></div><div className="coach-dashboard-controls"><button className="button secondary" disabled={!!busy || profile.syncing || !profile.active} onClick={() => void controlCoach('sync')}>{busy === 'sync' || (profile.active && profile.syncing) ? <Spinner /> : <RefreshCw size={15} />}<span>Проверить партии</span></button><button className="button secondary" disabled={!!busy} onClick={() => void controlCoach(profile.active && profile.status !== 'error' ? 'pause' : 'resume')}>{busy === 'pause' || busy === 'resume' ? <Spinner /> : profile.active && profile.status !== 'error' ? <Pause size={15} /> : <Play size={15} />}{profile.status === 'error' ? 'Повторить анализ' : profile.active ? 'Пауза' : 'Продолжить'}</button></div></div>
-    {error && <Notice message={error} close={() => setError('')} />}{fetchError && <Notice message={fetchError} close={() => setFetchError('')} />}{profile.error && <Notice message={profile.error} />}{profile.baseline_games === 0 && profile.new_games === 0 && (profile.error || profile.baseline_ready) && !dashboard.active_attempt_id && <button className="button secondary coach-fix-setup" disabled={!!busy} onClick={() => { setEditingSetup(true); setError(''); }}><RefreshCw size={15} />Исправить настройки</button>}
+    {error && <Notice message={error} close={() => setError('')} />}{fetchError && <Notice message={fetchError} close={() => setFetchError('')} />}{profile.error && <Notice message={profile.error} />}{profile.baseline_games === 0 && profile.new_games === 0 && (profile.error || profile.baseline_ready) && !dashboard.active_attempt_id && <button className="button secondary coach-fix-setup" disabled={!!busy} onClick={() => { navigate('/coach/settings'); setError(''); }}><RefreshCw size={15} />Исправить настройки</button>}
     <AnalysisStatus profile={profile} />
     {sessionSummary && <div className="coach-session-summary" role="status"><CheckCircle2 size={19} /><p>За занятие разобрано: <strong>{sessionCount}</strong>. Чистых решений: <strong>{sessionClean}</strong>. Проверим применение навыков в следующих партиях.</p><button className="icon-button" aria-label="Закрыть итоги занятия" onClick={() => setSessionSummary(false)}><X size={16} /></button></div>}
-    <div className="coach-tabs" role="tablist" aria-label="Разделы личного тренера">{(Object.keys(panelLabels) as Panel[]).map((name, index, names) => <button key={name} id={`coach-tab-${name}`} role="tab" aria-selected={panel === name} aria-controls={`coach-panel-${name}`} tabIndex={panel === name ? 0 : -1} onClick={() => setPanel(name)} onKeyDown={event => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; event.preventDefault(); const next = names[(index + (event.key === 'ArrowRight' ? 1 : names.length - 1)) % names.length]; setPanel(next); document.getElementById(`coach-tab-${next}`)?.focus(); }}>{panelLabels[name]}{name === 'games' && profile.new_games > 0 && <span>{profile.new_games}</span>}</button>)}</div>
+    <div className="coach-tabs" role="tablist" aria-label="Разделы личного тренера">{(Object.keys(panelLabels) as Panel[]).map((name, index, names) => <Link href={panelPath(name, selectedSkill)} key={name} id={`coach-tab-${name}`} role="tab" aria-selected={panel === name} aria-controls={`coach-panel-${name}`} tabIndex={panel === name ? 0 : -1} onKeyDown={event => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; event.preventDefault(); const next = names[(index + (event.key === 'ArrowRight' ? 1 : names.length - 1)) % names.length]; setPanel(next); document.getElementById(`coach-tab-${next}`)?.focus(); }}>{panelLabels[name]}{name === 'games' && profile.new_games > 0 && <span>{profile.new_games}</span>}</Link>)}</div>
     <div id={`coach-panel-${panel}`} role="tabpanel" aria-labelledby={`coach-tab-${panel}`} tabIndex={-1}>
       {panel === 'plan' && <div className="coach-plan-grid"><div className="coach-daily-card"><span className="coach-daily-eyebrow"><Sparkles size={17} /> ПРАКТИКА НА СЕГОДНЯ</span><h2>{prioritySkills.length ? <>Одна тема.<br />Десять решений.</> : <>Начни с основ,<br />пока идёт разбор.</>}</h2><p>{prioritySkills[0]?.recommendation || 'Тренер готовит рекомендации по твоим партиям. Пока можно потренировать проверку угроз и расчёт коротких вариантов.'}</p><div className="coach-daily-meta"><span><Clock3 size={15} />15–20 минут</span><span><RotateCcw size={15} />{profile.review_due} к повторению</span></div><button className="button coach-daily-start" disabled={!!busy || (!canPractice && !hasResume)} onClick={() => hasResume ? void resume() : void practice({ skill_id: prioritySkills[0]?.id })}>{busy === 'practice' || busy === 'resume-practice' ? <Spinner /> : <Play size={17} />}{hasResume ? 'Продолжить занятие' : 'Начать занятие'}<ArrowRight size={18} /></button><small>{canPractice || hasResume ? 'Свои ошибки · новые задачи · повторение' : 'Занятия откроются после загрузки первой партии.'}</small></div>
-        <div className="coach-priorities"><div className="coach-section-heading"><h2>Сейчас в фокусе</h2><span>{prioritySkills.length ? `${prioritySkills.length} темы` : 'Идёт диагностика'}</span></div>{prioritySkills.length ? prioritySkills.map(skill => <button className="coach-priority-card" key={skill.id} onClick={() => { setSelectedSkill(skill.id); setPanel('skills'); }}><PriorityRank rank={priorityRanks.get(skill.id)} className="coach-priority-number" /><div><div><h3>{skill.title}</h3><span className={`coach-skill-status ${skill.status}`}>{labels[skill.status]}</span></div><p>{skill.description}</p><small>{skill.evidence.length ? `Примеры из партий: ${skill.evidence.length}` : 'Начни с учебных позиций'}</small></div><ChevronRight size={19} /></button>) : <div className="coach-awaiting panel"><Target size={29} /><h3>Ищем повторяющиеся моменты</h3><p>Первые выводы появятся по мере разбора. Если в теме мало данных, тренер так и скажет.</p></div>}<button className="text-button coach-all-skills" onClick={() => setPanel('skills')}>Все направления тренировки<ArrowRight size={15} /></button></div>
+        <div className="coach-priorities"><div className="coach-section-heading"><h2>Сейчас в фокусе</h2><span>{prioritySkills.length ? `${prioritySkills.length} темы` : 'Идёт диагностика'}</span></div>{prioritySkills.length ? prioritySkills.map(skill => <button className="coach-priority-card" key={skill.id} onClick={() => navigate(panelPath('skills', skill.id))}><PriorityRank rank={priorityRanks.get(skill.id)} className="coach-priority-number" /><div><div><h3>{skill.title}</h3><span className={`coach-skill-status ${skill.status}`}>{labels[skill.status]}</span></div><p>{skill.description}</p><small>{skill.evidence.length ? `Примеры из партий: ${skill.evidence.length}` : 'Начни с учебных позиций'}</small></div><ChevronRight size={19} /></button>) : <div className="coach-awaiting panel"><Target size={29} /><h3>Ищем повторяющиеся моменты</h3><p>Первые выводы появятся по мере разбора. Если в теме мало данных, тренер так и скажет.</p></div>}<button className="text-button coach-all-skills" onClick={() => setPanel('skills')}>Все направления тренировки<ArrowRight size={15} /></button></div>
         <div className="coach-plan-note"><ShieldCheck size={20} /><p><strong>Прогресс проверяем в новых партиях.</strong> Исходные партии остаются точкой сравнения. После старта сравниваем с последними 40 новыми партиями того же контроля.</p></div>
       </div>}
       {(panel === 'skills' || panel === 'progress') && <><div className="coach-panel-purpose"><p>{panel === 'skills' ? 'Что тренировать: рекомендации, примеры из твоих партий и упражнения по каждому навыку.' : 'Что меняется: частота ошибок в новых партиях по сравнению со стартом и результаты упражнений.'}</p>{rankedSkills.length > 0 && <span>Номер — порядок тренировки: начни с №1.</span>}</div><div className="coach-skills-layout"><div className="coach-skill-picker" aria-label="Выбор навыка">{skills.map(skill => <button key={skill.id} className={chosen?.id === skill.id ? 'selected' : ''} aria-pressed={chosen?.id === skill.id} onClick={() => setSelectedSkill(skill.id)}><span className="coach-skill-name"><PriorityRank rank={priorityRanks.get(skill.id)} /><span className="coach-skill-title">{skill.title}</span></span><small className={`coach-skill-status ${skill.status}`}>{labels[skill.status]}</small><ChevronRight size={16} /></button>)}</div>{chosen ? <article className="coach-skill-detail panel"><div className="coach-section-heading"><div className="coach-skill-meta">{priorityRanks.has(chosen.id) && <span className="coach-detail-priority">Приоритет №{priorityRanks.get(chosen.id)}</span>}<span className={`coach-skill-status ${chosen.status}`}>{labels[chosen.status]}</span></div>{panel === 'progress' ? <TrendingUp size={21} /> : <Target size={21} />}</div><h2>{chosen.title}</h2><p className="coach-skill-description">{chosen.description}</p><div className="coach-recommendation"><Lightbulb size={19} /><p>{chosen.recommendation}</p></div>

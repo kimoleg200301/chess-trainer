@@ -29,13 +29,13 @@
 .import-history .panel-title { padding: 0 6px; margin-bottom: 12px; }
 .import-history .panel-title h2 { font-size: 14px; }
 .import-history-list { display: grid; gap: 6px; }
-.import-history-list > button { display: block; text-align: left; border: 1px solid transparent; border-radius: 8px; padding: 12px 11px; background: transparent; min-width: 0; color: #77866e; }
-.import-history-list > button:hover { background: #f4f6ef; }
-.import-history-list > button.selected { background: #eef4e7; border-color: #dbe6ce; color: #4d6d40; }
+.import-history-list > a { display: block; text-align: left; text-decoration: none; border: 1px solid transparent; border-radius: 8px; padding: 12px 11px; background: transparent; min-width: 0; color: #77866e; }
+.import-history-list > a:hover { background: #f4f6ef; }
+.import-history-list > a.selected { background: #eef4e7; border-color: #dbe6ce; color: #4d6d40; }
 .import-history-list strong { display: block; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .import-history-list small { display: block; font-size: 9px; color: #95a087; margin-top: 5px; }
-.import-history-list button > span { display: block; font-size: 9px; line-height: 1.8; margin-top: 7px; }
-.import-history-list button > span > span { color: #a4ae96; padding: 0 3px; }
+.import-history-list a > span { display: block; font-size: 9px; line-height: 1.8; margin-top: 7px; }
+.import-history-list a > span > span { color: #a4ae96; padding: 0 3px; }
 .library-results { min-width: 0; }
 .library-empty { font-size: 12px; line-height: 1.9; color: #89967b; }
 .import-history > .library-empty { padding: 8px; font-size: 11px; }
@@ -121,7 +121,7 @@
   .public-import-steps { margin: 17px 0; font-size: 10px; gap: 9px; }
   .game-library .public-import > .button { font-size: 10px; }
   .import-history-list { display: flex; overflow-x: auto; padding-bottom: 5px; }
-  .import-history-list > button { flex: 0 0 205px; }
+  .import-history-list > a { flex: 0 0 205px; }
   .library-import-panels > .panel { padding: 21px; }
   .library-notice { font-size: 11px; }
   .game-library .import-progress-panel { padding: 18px; }

@@ -10,7 +10,6 @@ import chess.engine
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, case, delete, exists, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -21,6 +20,7 @@ from .background import AnalysisWorker
 from .config import settings
 from .db import get_db
 from .engine_resources import engine_slots
+from .frontend import SPAStaticFiles
 from .imports_api import router as imports_router
 from .models import Attempt, LoginSession, Puzzle, Review, User, now
 from .ratings import previously_finished
@@ -410,4 +410,4 @@ def api_not_found(unmatched: str):
 # API routes above always win; standalone backend behavior is unchanged by default.
 frontend_dist = os.environ.get("FRONTEND_DIST")
 if frontend_dist:
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend")

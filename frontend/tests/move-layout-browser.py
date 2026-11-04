@@ -48,7 +48,7 @@ def check_review(browser, width):
     context,page,errors,posts,games,reports,partial = review.setup(browser,width)
     reports[0]['moves'][0]['reason'] = LONG
     reports[0]['moves'][1]['reason'] = 'Короткий комментарий.'
-    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player1 — Opponent1',exact=True).click()
     board = '.analysis-position-board'
     expected = board_rect(page, board)
     page.evaluate('window.scrollTo(0, 0)')

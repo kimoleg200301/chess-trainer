@@ -70,7 +70,7 @@ def setup(browser, width=390):
         route.fulfill(json=data)
     page.route('**/api/**',respond)
     page.goto(BASE)
-    page.get_by_role('button',name='Анализ',exact=True).click()
+    page.get_by_role('link',name='Анализ',exact=True).click()
     return context,page,errors,posts,games,reports,partial
 
 
@@ -82,7 +82,7 @@ def check_review(browser,width):
     context,page,errors,posts,games,reports,partial=setup(browser,width)
     expect(page.get_by_role('heading',name='Анализ партий',exact=True)).to_be_visible()
     expect(page.locator('.analysis-position-board')).to_have_count(0)
-    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player1 — Opponent1',exact=True).click()
     expect(page.get_by_role('region',name='Интерактивный разбор партии')).to_be_visible()
     expect(page.get_by_role('navigation',name='Главная навигация')).to_have_count(0)
     expect(page.locator('.analysis-game-options')).to_have_count(0)
@@ -131,7 +131,7 @@ def check_review(browser,width):
 
 def check_progress(browser):
     context,page,errors,posts,games,reports,partial=setup(browser)
-    page.get_by_role('button',name='Открыть партию Player2 — Opponent2',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player2 — Opponent2',exact=True).click()
     expect(page.get_by_role('region',name='Ход анализа')).to_be_visible()
     expect(page.locator('.analysis-position-board')).to_have_count(0)
     page.get_by_role('button',name='Анализировать партию',exact=True).click()
@@ -143,7 +143,7 @@ def check_progress(browser):
     page.get_by_role('button',name='К партиям',exact=True).click()
     assert len(posts)==1 and partial['background_requested']
     partial.update(cursor=2,moves=deepcopy(reports[1]['moves'][:2]))
-    page.get_by_role('button',name='Открыть партию Player2 — Opponent2',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player2 — Opponent2',exact=True).click()
     expect(page.get_by_role('progressbar')).to_have_attribute('aria-valuenow','50')
     page.get_by_role('button',name='Пауза',exact=True).click()
     expect(page.get_by_role('button',name='Продолжить анализ',exact=True)).to_be_visible()
@@ -174,7 +174,7 @@ def check_old_report(browser):
     reports[0]['moves']=reports[0]['moves'][:1]
     games[0].update(analysis_outdated=True,analysis_status='running',background_requested=True)
     refresh(page)
-    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player1 — Opponent1',exact=True).click()
     expect(page.get_by_role('button',name='Пересчитать партию',exact=True)).to_be_visible()
     expect(page.get_by_role('button',name='Пауза',exact=True)).to_have_count(0)
     expect(page.get_by_role('button',name='Продолжить анализ',exact=True)).to_have_count(0)
@@ -191,7 +191,7 @@ def check_old_report(browser):
 def check_missing_score_resume(browser):
     context,page,errors,posts,games,reports,partial=setup(browser)
     reports[0]['retry_pending']=1
-    page.get_by_role('button',name='Открыть партию Player1 — Opponent1',exact=True).click()
+    page.get_by_role('link',name='Открыть партию Player1 — Opponent1',exact=True).click()
     expect(page.get_by_role('status')).to_contain_text('Уточняем оценки ходов: осталось 1')
     expect(page.get_by_role('button',name='Пауза',exact=True)).to_be_visible()
     assert posts==[('/game-analysis/11/resume',{})]

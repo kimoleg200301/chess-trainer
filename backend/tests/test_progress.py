@@ -18,7 +18,10 @@ def test_static_mount_never_replaces_api(client):
     assert client.get("/api/meta").status_code == 401
     unknown = client.get("/api/does-not-exist")
     assert unknown.status_code == 404 and unknown.headers["content-type"].startswith("application/json")
-    assert client.get("/missing-file").status_code == 404
+    assert client.get("/missing-file.js").status_code == 404
+    for path in ("/progress", "/games/7", "/analysis/5/review", "/coach/practice/3"):
+        response = client.get(path)
+        assert response.status_code == 200 and "Tactics Lab test frontend" in response.text
     assert client.get("/api/progress/export").status_code == 401
 
 

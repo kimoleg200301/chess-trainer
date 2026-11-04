@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, Download, ExternalLink, Layers3, LoaderCircle, Pause, Play, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { api } from './api';
+import { captureNavigation, Link, navigate, useRoute } from './router';
 import { useBackgroundRefresh } from './useBackgroundRefresh';
 import type { CreatedPuzzle, ImportedGame, ImportJob, ImportJobSummary, Improvement } from './api';
 import './game-library.css';
@@ -65,12 +66,17 @@ function GameCard({ game, source, running, created, creatingId, onCreate, onPrac
 export default function GameLibrary({ visible, onChanged, onPractice }: {
   visible: boolean; onChanged: () => void; onPractice: (puzzleId: string, collection: string) => void;
 }) {
+  const { pathname } = useRoute();
+  const routeId = /^\/games\/([1-9]\d*)$/.exec(pathname)?.[1];
+  const selectedId = routeId && Number.isSafeInteger(Number(routeId)) ? Number(routeId) : null;
+  const routeRef = useRef({ pathname, visible });
+  routeRef.current = { pathname, visible };
   const [username, setUsername] = useState('');
   const [month, setMonth] = useState('');
   const [limit, setLimit] = useState(10);
   const [jobs, setJobs] = useState<ImportJobSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<ImportJob | null>(null);
+  const [loadedDetail, setDetail] = useState<ImportJob | null>(null);
+  const detail = loadedDetail?.id === selectedId ? loadedDetail : null;
   const [listBusy, setListBusy] = useState(false);
   const [detailBusy, setDetailBusy] = useState(false);
   const [importBusy, setImportBusy] = useState<'public' | 'chesscom' | null>(null);
@@ -82,7 +88,9 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const mounted = useRef(true);
-  const selectedRef = useRef<number | null>(null);
+  const selectedRef = useRef(selectedId);
+  selectedRef.current = selectedId;
+  const importedJob = useRef<ImportJob | null>(null);
   const stepFlight = useRef(false);
   const importFlight = useRef(false);
   const creatingFlight = useRef(false);
@@ -119,15 +127,21 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
   const resumeAnalysis = (id: number) => { void controlAnalysis(id, true); };
   const pauseAnalysis = () => { if (selectedRef.current !== null) void controlAnalysis(selectedRef.current, false); };
 
-  const selectJob = useCallback(async (id: number) => {
-    selectedRef.current = id; setSelectedId(id); setDetail(null); setDetailBusy(true); setError(''); setNotice(''); setOnlyImprovements(false);
+  const loadJob = useCallback(async (id: number) => {
+    setDetail(null); setDetailBusy(true); setError(''); setNotice(''); setOnlyImprovements(false);
     const version = ++detailVersion.current;
     const revision = detailRevision.current;
     try {
-      const result = await api<ImportJob>(`/imports/${id}`);
-      if (mounted.current && version === detailVersion.current && selectedRef.current === id && revision === detailRevision.current) { detailRevision.current++; setDetail(result); upsertJob(result); }
-    } catch (err) { if (mounted.current && version === detailVersion.current) setError(errorText(err)); }
-    finally { if (mounted.current && version === detailVersion.current) setDetailBusy(false); }
+      const cached = importedJob.current?.id === id ? importedJob.current : null;
+      importedJob.current = null;
+      const result = cached || await api<ImportJob>(`/imports/${id}`);
+      if (mounted.current && version === detailVersion.current && selectedRef.current === id && revision === detailRevision.current) {
+        detailRevision.current++; setDetail(result); upsertJob(result);
+        if (cached?.analysis_outdated) setNotice('Для этой подборки доступна улучшенная проверка. Нажмите «Пересчитать анализ».');
+        else if (cached?.status === 'completed') setNotice('Эта подборка уже обработана. Сохранённые задачи доступны в выбранной базе.');
+      }
+    } catch (err) { if (mounted.current && version === detailVersion.current && selectedRef.current === id) setError(errorText(err)); }
+    finally { if (mounted.current && version === detailVersion.current && selectedRef.current === id) setDetailBusy(false); }
   }, [upsertJob]);
 
   const loadJobs = useCallback(async () => {
@@ -138,15 +152,19 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
       const result = await api<{ jobs: ImportJobSummary[] }>('/imports');
       if (!mounted.current || version !== listVersion.current) return;
       setJobs(previous => revision === jobsRevision.current ? result.jobs : [...previous, ...result.jobs.filter(job => !previous.some(existing => existing.id === job.id))].sort((a, b) => b.id - a.id));
-      if (selectedRef.current === null && result.jobs.length) void selectJob(result.jobs[0].id);
     } catch (err) { if (mounted.current && version === listVersion.current) setError(errorText(err)); }
     finally { if (mounted.current && version === listVersion.current) setListBusy(false); }
-  }, [selectJob]);
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+  useEffect(() => {
+    setError(''); setNotice(''); setDetail(null); setDetailBusy(false); setOnlyImprovements(false);
+    if (visible && selectedId !== null) void loadJob(selectedId);
+    return () => { detailVersion.current++; };
+  }, [visible, selectedId, loadJob]);
   useEffect(() => { if (visible) void loadJobs(); }, [visible, loadJobs]);
   useBackgroundRefresh(async () => {
     if (stepFlight.current || importFlight.current || reanalysisFlight.current) return;
@@ -165,13 +183,20 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
   async function beginImport(source: 'public' | 'chesscom', event?: FormEvent) {
     event?.preventDefault();
     if (importFlight.current || stepFlight.current || reanalysisFlight.current) return;
+    const origin = routeRef.current.pathname, selection = detailVersion.current;
+    const isCurrent = captureNavigation();
     importFlight.current = true; detailRevision.current++; jobsRevision.current++; setImportBusy(source); setError(''); setNotice('');
     try {
       const job = await api<ImportJob>(`/imports/${source}`, source === 'chesscom' ? { username: username.trim(), month: month || null, limit, background: true } : { background: true });
       if (!mounted.current) return;
-      detailVersion.current++; detailRevision.current++; selectedRef.current = job.id; setSelectedId(job.id); setDetail(job); setDetailBusy(false); setOnlyImprovements(false); upsertJob(job); changedRef.current();
-      if (job.analysis_outdated) setNotice('Для этой подборки доступна улучшенная проверка. Нажмите «Пересчитать анализ».');
-      else if (job.status === 'completed') setNotice('Эта подборка уже обработана. Сохранённые задачи доступны в выбранной базе.');
+      upsertJob(job); changedRef.current();
+      // An import may finish after the user has opened another page or collection.
+      if (isCurrent() && routeRef.current.visible && routeRef.current.pathname === origin && detailVersion.current === selection) {
+        importedJob.current = job;
+        const destination = `/games/${job.id}`;
+        if (origin === destination) void loadJob(job.id);
+        else navigate(destination);
+      }
     } catch (err) { if (mounted.current) setError(errorText(err)); }
     finally { importFlight.current = false; if (mounted.current) setImportBusy(null); }
   }
@@ -235,10 +260,11 @@ export default function GameLibrary({ visible, onChanged, onPractice }: {
     {notice && <div className="library-notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button className="icon-button" aria-label="Закрыть уведомление" onClick={() => setNotice('')}><X size={15} /></button></div>}
 
     <div className="library-workspace"><aside className="panel import-history"><div className="panel-title"><h2>Ваши подборки</h2><button className="icon-button" aria-label="Обновить список подборок" disabled={listBusy} onClick={() => void loadJobs()}>{listBusy ? <Spinner /> : <RefreshCw size={16} />}</button></div>
-      {!jobs.length ? <p className="library-empty">{listBusy ? 'Загружаем подборки…' : 'Здесь появятся загруженные партии и результаты их анализа.'}</p> : <div className="import-history-list">{jobs.map(job => <button key={job.id} className={selectedId === job.id ? 'selected' : ''} aria-pressed={selectedId === job.id} onClick={() => void selectJob(job.id)}><strong>{jobName(job)}</strong><small>{job.month || dateLabel(job.created_at)} · {job.total_games} партий</small><span>{job.status === 'completed' ? 'Готово' : job.status === 'failed' ? 'Требует внимания' : job.background_requested ? 'Анализируем' : 'Можно продолжить'} <span>·</span> {job.candidates_count} моментов</span></button>)}</div>}
+      {!jobs.length ? <p className="library-empty">{listBusy ? 'Загружаем подборки…' : 'Здесь появятся загруженные партии и результаты их анализа.'}</p> : <div className="import-history-list">{jobs.map(job => <Link href={`/games/${job.id}`} key={job.id} className={selectedId === job.id ? 'selected' : ''} aria-current={selectedId === job.id ? 'page' : undefined}><strong>{jobName(job)}</strong><small>{job.month || dateLabel(job.created_at)} · {job.total_games} партий</small><span>{job.status === 'completed' ? 'Готово' : job.status === 'failed' ? 'Требует внимания' : job.background_requested ? 'Анализируем' : 'Можно продолжить'} <span>·</span> {job.candidates_count} моментов</span></Link>)}</div>}
     </aside>
     <div className="library-results" aria-busy={detailBusy}>
-      {detailBusy ? <div className="panel library-placeholder"><Spinner /><p>Открываем результаты…</p></div> : !detail ? <div className="panel library-placeholder"><BookOpen size={29} /><h2>Начните с нескольких партий</h2><p>В списке появятся улучшения и готовые задачи для тренировки.</p></div> : <>
+      {selectedId !== null && <Link className="text-button" href="/games">Все подборки</Link>}
+      {detailBusy ? <div className="panel library-placeholder"><Spinner /><p>Открываем результаты…</p></div> : !detail ? <div className="panel library-placeholder"><BookOpen size={29} /><h2>{routeId ? 'Не удалось открыть подборку' : jobs.length ? 'Выберите подборку' : 'Начните с нескольких партий'}</h2><p>{routeId ? 'Проверьте ссылку или выберите другую подборку из списка.' : jobs.length ? 'Откройте подборку, чтобы увидеть результаты анализа и задачи для тренировки.' : 'В списке появятся улучшения и готовые задачи для тренировки.'}</p>{selectedId !== null && <button className="button secondary" onClick={() => void loadJob(selectedId)}><RefreshCw size={16} />Повторить загрузку</button>}</div> : <>
         <section className="panel import-progress-panel"><div className="import-detail-heading"><div><h2>{jobName(detail)}</h2><p>{detail.source === 'public' ? 'Тактические возможности за обе стороны.' : `Улучшения в ходах ${detail.username}.`}</p></div>{detail.analysis_outdated ? <span className="import-complete">Доступен пересчёт</span> : detail.status === 'completed' ? <span className="import-complete"><CheckCircle2 size={17} /> Готово</span> : running ? <button className="button secondary" disabled={stepBusy} onClick={pauseAnalysis}><Pause size={15} /> Пауза</button> : <button className="button secondary" disabled={stepBusy || importBusy !== null || reanalyzingId !== null} onClick={() => resumeAnalysis(detail.id)}>{stepBusy ? <Spinner /> : <Play size={15} />}{stepBusy ? 'Завершаем проверку…' : detail.status === 'failed' ? 'Повторить анализ' : 'Продолжить анализ'}</button>}</div>
           <div className="import-progress-track" role="progressbar" aria-label="Анализ подборки" aria-valuemin={0} aria-valuemax={positions || 1} aria-valuenow={Math.min(checked, positions || 1)}><span style={{ width: `${positions ? Math.min(100, checked / positions * 100) : detail.status === 'completed' ? 100 : 0}%` }} /></div>
           <div className="import-totals"><span><strong>{detail.completed_games} / {detail.total_games}</strong> партий обработано</span><span><strong>{detail.candidates_count}</strong> моментов найдено</span><span><strong>{readyMoments}</strong> подходящих моментов</span><span><strong>{detail.puzzles_count}</strong> задач из этих партий</span></div>
