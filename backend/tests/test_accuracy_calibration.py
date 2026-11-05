@@ -24,7 +24,8 @@ def clean_training():
 def fixture(*, family="mean_power", parameters=None, player_side="white", start_side="white"):
     game = {"white": "kimskiy1114" if player_side == "white" else "opponent",
             "black": "kimskiy1114" if player_side == "black" else "opponent",
-            "time_control": "300+5", "moves": ["e2e4", "e7e5", "g1f3", "b8c6"],
+            "time_control": "300+5",
+            "moves": ["e7e5", "e2e4", "b8c6", "g1f3"] if start_side == "black" else ["e2e4", "e7e5", "g1f3", "b8c6"],
             "initial_fen": chess.STARTING_FEN.replace(" w ", " b ") if start_side == "black" else chess.STARTING_FEN}
     profile = {"id": "test-research-profile", "username": "kimskiy1114", "time_control": "300+5",
                "family": family, "parameters": {"power": 2.0} if parameters is None else parameters,
@@ -88,9 +89,11 @@ def test_perfect_is_100_and_worsening_evidence_cannot_improve_estimate(family, p
     assert estimates == sorted(estimates, reverse=True)
 
 
+@pytest.mark.parametrize("apply_to", ["player_only", "both_players"])
 @pytest.mark.parametrize("change", ["different_user", "different_control", "old_version", "no_job_user", "ambiguous_players"])
-def test_only_explicit_current_player_and_control_scope_can_receive_estimate(change):
+def test_only_explicit_current_player_and_control_scope_can_receive_estimate(change, apply_to):
     game, profile, rows, summary = fixture()
+    profile["apply_to"] = apply_to
     username, current = "kimskiy1114", True
     if change == "different_user": username = "opponent"
     elif change == "different_control": game["time_control"] = "180+2"
@@ -109,6 +112,72 @@ def test_username_case_is_normalized_and_black_start_uses_actual_mover_side():
                                current_version=True, profile=profile)
     assert result["black"]["estimated_chesscom_accuracy"] == 56.2
     assert result["white"]["estimated_chesscom_accuracy"] is None
+
+
+@pytest.mark.parametrize("player_side", ["white", "black"])
+@pytest.mark.parametrize("start_side", ["white", "black"])
+def test_both_players_use_their_own_asymmetric_evidence_for_either_player_color_or_start(player_side, start_side):
+    game, profile, rows, _ = fixture(player_side=player_side, start_side=start_side)
+    profile["apply_to"] = "both_players"
+    for row in rows:
+        row["accuracy"] = (100 if row["ply"] < 2 else 80) if row["side"] == "white" else (60 if row["ply"] < 2 else 20)
+    summary = summarize_moves(rows, 4, starting_side=start_side, completed=True)
+    original = deepcopy((game, profile, rows, summary))
+    result = run(game, profile, list(reversed(rows)), summary)
+    assert result["white"]["estimated_chesscom_accuracy"] == 81
+    assert result["black"]["estimated_chesscom_accuracy"] == 16
+    assert result["white"]["accuracy"] == 90
+    assert result["black"]["accuracy"] == 40
+    assert (game, profile, rows, summary) == original
+
+
+@pytest.mark.parametrize("player_side", ["white", "black"])
+@pytest.mark.parametrize("explicit_policy", [False, True])
+def test_legacy_or_explicit_player_only_profile_does_not_calibrate_the_opponent(player_side, explicit_policy):
+    game, profile, rows, summary = fixture(player_side=player_side)
+    if explicit_policy:
+        profile["apply_to"] = "player_only"
+    else:
+        assert "apply_to" not in profile
+    result = run(game, profile, rows, summary)
+    opponent = "black" if player_side == "white" else "white"
+    assert result[player_side]["estimated_chesscom_accuracy"] == 56.2
+    assert result[opponent]["estimated_chesscom_accuracy"] is None
+
+
+@pytest.mark.parametrize("apply_to", [None, True, False, "", "everyone", [], {}])
+def test_unknown_or_malformed_side_policy_disables_both_estimates_and_metadata(apply_to):
+    game, profile, rows, summary = fixture()
+    profile["apply_to"] = apply_to
+    result = run(game, profile, rows, summary)
+    assert all(result[side]["estimated_chesscom_accuracy"] is None for side in ("white", "black"))
+    assert calibration_metadata(profile) is None
+
+
+@pytest.mark.parametrize("bad_side", ["white", "black"])
+@pytest.mark.parametrize("defect", ["unassessed", "missing_loss", "invalid_loss", "forced_only", "wrong_count"])
+def test_incomplete_side_does_not_block_independently_measurable_other_side(bad_side, defect):
+    game, profile, rows, _ = fixture(family="loss_exponential", parameters={"decay": 5})
+    profile["apply_to"] = "both_players"
+    affected = [row for row in rows if row["side"] == bad_side]
+    if defect == "unassessed":
+        affected[0].update(assessed=False, category="unassessed", accuracy=None, expected_loss=None)
+    elif defect == "missing_loss":
+        affected[0].pop("expected_loss")
+    elif defect == "invalid_loss":
+        affected[0]["expected_loss"] = 1.5
+    elif defect == "forced_only":
+        for row in affected:
+            row.update(category="forced", accuracy=None, expected_loss=None)
+    summary = summarize_moves(rows, 4, completed=True)
+    if defect == "wrong_count":
+        summary[bad_side]["accuracy_moves"] += 1
+    assert summary["complete"]
+    result = run(game, profile, rows, summary)
+    other = "black" if bad_side == "white" else "white"
+    assert result[bad_side]["estimated_chesscom_accuracy"] is None
+    assert result[other]["estimated_chesscom_accuracy"] == 60.7
+    assert all(result[side]["accuracy"] == summary[side]["accuracy"] for side in ("white", "black"))
 
 
 @pytest.mark.parametrize("family,parameters", [
@@ -268,7 +337,7 @@ def test_public_metadata_exposes_only_identity_scope_formula_and_valid_aggregate
                                  "raw_references": [68.87, 73.9]})
     metadata = calibration_metadata(profile)
     assert set(metadata) == {"id", "scope", "formula", "test_metrics"}
-    assert metadata["scope"] == {"username": "kimskiy1114", "time_control": "300+5"}
+    assert metadata["scope"] == {"username": "kimskiy1114", "time_control": "300+5", "apply_to": "player_only"}
     assert metadata["test_metrics"] == {"games": 25, "samples": 25, "baseline_mae_pp": 15.5,
                                         "calibrated_mae_pp": 5.5, "mae_reduction_pp": 10,
                                         "bootstrap_95pct_interval_pp": [5, 15]}
@@ -279,3 +348,23 @@ def test_public_metadata_exposes_only_identity_scope_formula_and_valid_aggregate
                                "calibrated_mae_pp": 10 ** 1000,
                                "bootstrap_95pct_interval_pp": [15, 5]}
     assert calibration_metadata(profile)["test_metrics"] == {}
+
+
+def test_both_players_metadata_exposes_only_valid_aggregate_opponent_metrics():
+    _, profile, _, _ = fixture()
+    profile.update(apply_to="both_players", opponent_test_metrics={
+        "games": 25, "samples": 25, "baseline_mae_pp": 11.2, "calibrated_mae_pp": 5.8,
+        "mae_reduction_pp": 5.4, "bootstrap_95pct_interval_pp": [2.1, 8.7],
+        "raw_references": [68.87, 73.9], "usernames": ["unrelated-player"]})
+    metadata = calibration_metadata(profile)
+    assert metadata["scope"]["apply_to"] == "both_players"
+    assert metadata["opponent_test_metrics"] == {
+        "games": 25, "samples": 25, "baseline_mae_pp": 11.2, "calibrated_mae_pp": 5.8,
+        "mae_reduction_pp": 5.4, "bootstrap_95pct_interval_pp": [2.1, 8.7]}
+    metadata["opponent_test_metrics"]["bootstrap_95pct_interval_pp"][0] = -1
+    assert profile["opponent_test_metrics"]["bootstrap_95pct_interval_pp"][0] == 2.1
+    profile["opponent_test_metrics"] = {"games": True, "samples": -1, "baseline_mae_pp": float("inf"),
+                                        "calibrated_mae_pp": 101, "bootstrap_95pct_interval_pp": [8, 2]}
+    assert calibration_metadata(profile)["opponent_test_metrics"] == {}
+    profile["apply_to"] = "player_only"
+    assert "opponent_test_metrics" not in calibration_metadata(profile)

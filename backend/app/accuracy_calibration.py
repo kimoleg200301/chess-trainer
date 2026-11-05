@@ -65,6 +65,8 @@ def _valid_profile(profile) -> bool:
         return False
     if not isinstance(profile.get("time_control"), str) or not profile["time_control"]:
         return False
+    if profile.get("apply_to", "player_only") not in ("player_only", "both_players"):
+        return False
     family, parameters = profile.get("family"), profile.get("parameters")
     if not isinstance(family, str) or family not in _PARAMETER_BOUNDS or not isinstance(parameters, dict):
         return False
@@ -93,16 +95,8 @@ def load_active_profile() -> dict | None:
     return profile
 
 
-def calibration_metadata(profile: dict | None) -> dict | None:
-    """Expose only the profile identity, scope, formula and aggregate test metrics."""
-    if (not _valid_profile(profile) or not isinstance(profile.get("id"), str)
-            or not 0 < len(profile["id"]) <= 200):
-        return None
-    formula = profile.get("formula")
-    if not isinstance(formula, str) or not 0 < len(formula) <= 500:
-        formula = _FORMULAS[profile["family"]]
+def _public_test_metrics(supplied) -> dict:
     metrics = {}
-    supplied = profile.get("test_metrics", {})
     if isinstance(supplied, dict):
         for key in ("games", "samples"):
             value = supplied.get(key)
@@ -119,9 +113,25 @@ def calibration_metadata(profile: dict | None) -> dict | None:
                 and all(_finite_number(value, -100, 100) for value in interval)
                 and interval[0] <= interval[1]):
             metrics["bootstrap_95pct_interval_pp"] = list(interval)
-    return {"id": profile["id"], "scope": {"username": _username(profile["username"]),
-                                             "time_control": profile["time_control"]},
-            "formula": formula, "test_metrics": metrics}
+    return metrics
+
+
+def calibration_metadata(profile: dict | None) -> dict | None:
+    """Expose only the profile identity, scope, formula and aggregate test metrics."""
+    if (not _valid_profile(profile) or not isinstance(profile.get("id"), str)
+            or not 0 < len(profile["id"]) <= 200):
+        return None
+    formula = profile.get("formula")
+    if not isinstance(formula, str) or not 0 < len(formula) <= 500:
+        formula = _FORMULAS[profile["family"]]
+    apply_to = profile.get("apply_to", "player_only")
+    result = {"id": profile["id"], "scope": {"username": _username(profile["username"]),
+                                               "time_control": profile["time_control"],
+                                               "apply_to": apply_to},
+              "formula": formula, "test_metrics": _public_test_metrics(profile.get("test_metrics"))}
+    if apply_to == "both_players":
+        result["opponent_test_metrics"] = _public_test_metrics(profile.get("opponent_test_metrics"))
+    return result
 
 
 def _estimate(family: str, parameters: dict, rows: list[dict]) -> float | None:
@@ -142,16 +152,19 @@ def _estimate(family: str, parameters: dict, rows: list[dict]) -> float | None:
 def calibrate_summary(rows: list[dict], summary: dict, game: dict, *,
                       username: str | None = None, current_version: bool,
                       profile: dict | None = None) -> dict:
-    """Return a copy with an optional estimate for the profile's player side.
+    """Return a copy with independent estimates for the profile's selected sides.
 
     ``profile`` requires ``username``, ``time_control``, ``family`` and a named
     ``parameters`` dict; metadata such as ID and provenance can be retained by
     the caller. Supported bounds match the offline fitting script. ``username``
     is the owning import job's player, not an inferred identity from an opponent.
+    ``apply_to=both_players`` additionally estimates the opponent in those same
+    games; absent ``apply_to`` retains the original player-only behavior.
 
     The estimate is withheld for incomplete/outdated reports, other players or
     controls, invalid profiles, duplicate/missing plies, inconsistent mover sides,
-    unassessed player moves, or missing evidence required by the chosen formula.
+    unassessed moves, or missing evidence required by the chosen formula. An
+    incomplete side does not prevent an independently complete side's estimate.
     Forced moves are excluded. Original percentages and other fields are copied
     unchanged, including any independently supplied Chess.com reference values.
     Legacy games without time-control metadata may use their stored PGN header;
@@ -171,11 +184,6 @@ def calibrate_summary(rows: list[dict], summary: dict, game: dict, *,
     if len(player_sides) != 1:
         return result
     player_side = player_sides[0]
-    side_summary = summary.get(player_side)
-    if (not isinstance(side_summary, dict) or side_summary.get("complete") is not True
-            or side_summary.get("accuracy_complete") is not True
-            or not _finite_number(side_summary.get("accuracy"), 0, 100)):
-        return result
     moves = game.get("moves")
     if not isinstance(moves, list) or not moves or not isinstance(rows, list) or len(rows) != len(moves):
         return result
@@ -187,7 +195,7 @@ def calibrate_summary(rows: list[dict], summary: dict, game: dict, *,
         return result
     start_side = "white" if board.turn else "black"
     other_side = "black" if board.turn else "white"
-    seen, player_rows = set(), []
+    seen, side_rows = set(), {"white": [], "black": []}
     for row in rows:
         if not isinstance(row, dict):
             return result
@@ -198,17 +206,23 @@ def calibrate_summary(rows: list[dict], summary: dict, game: dict, *,
         expected_side = start_side if ply % 2 == 0 else other_side
         if row.get("side") != expected_side:
             return result
-        if expected_side == player_side:
-            if (row.get("assessed") is not True or row.get("category") not in CATEGORY_NAMES
-                    or row["category"] == "unassessed"):
-                return result
-            player_rows.append(row)
-    scored = [row for row in player_rows if row["category"] != "forced"]
-    if (not scored or side_summary.get("total_moves") != len(player_rows)
-            or side_summary.get("assessed_moves") != len(player_rows)
-            or side_summary.get("accuracy_moves") != len(scored)):
-        return result
-    estimate = _estimate(profile["family"], profile["parameters"], scored)
-    if estimate is not None:
-        result[player_side]["estimated_chesscom_accuracy"] = estimate
+        side_rows[expected_side].append(row)
+    selected_sides = ("white", "black") if profile.get("apply_to") == "both_players" else (player_side,)
+    for side in selected_sides:
+        side_summary, records = summary.get(side), side_rows[side]
+        if (not isinstance(side_summary, dict) or side_summary.get("complete") is not True
+                or side_summary.get("accuracy_complete") is not True
+                or not _finite_number(side_summary.get("accuracy"), 0, 100)):
+            continue
+        if any(row.get("assessed") is not True or row.get("category") not in CATEGORY_NAMES
+               or row["category"] == "unassessed" for row in records):
+            continue
+        scored = [row for row in records if row["category"] != "forced"]
+        if (not scored or side_summary.get("total_moves") != len(records)
+                or side_summary.get("assessed_moves") != len(records)
+                or side_summary.get("accuracy_moves") != len(scored)):
+            continue
+        estimate = _estimate(profile["family"], profile["parameters"], scored)
+        if estimate is not None:
+            result[side]["estimated_chesscom_accuracy"] = estimate
     return result

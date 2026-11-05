@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "id": "kimskiy1114-300plus5-20261104-v1",
+  "id": "kimskiy1114-300plus5-20261105-v2",
   "username": "kimskiy1114",
   "time_control": "300+5",
   "analysis_version": 2,
@@ -29,5 +29,17 @@
     "calibrated_mae_pp": 5.886666666666666,
     "note": "Small exploratory check at production engine settings, not a generalization guarantee."
   },
-  "scope_note": "Reviewed standard 300+5 games of this player only. Approximation, not Chess.com CAPS2 or per-move ground truth."
+  "scope_note": "Both sides of reviewed standard 300+5 games imported for kimskiy1114. The original coefficient is unchanged and was validated on held-out opponents. Approximation, not Chess.com CAPS2 or per-move ground truth.",
+  "apply_to": "both_players",
+  "opponent_test_metrics": {
+    "games": 12,
+    "samples": 12,
+    "baseline_mae_pp": 10.214166666666664,
+    "calibrated_mae_pp": 3.8458333333333328,
+    "mae_reduction_pp": 6.3683333333333305,
+    "bootstrap_95pct_interval_pp": [
+      3.179874999999995,
+      9.981874999999995
+    ]
+  }
 }
