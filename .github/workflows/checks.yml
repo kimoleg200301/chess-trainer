@@ -61,3 +61,4 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql+psycopg://tests:disposable-ci-database@localhost:5432/tactics_test
           TEST_STOCKFISH_PATH: ${{ runner.temp }}/bin/stockfish
+          STOCKFISH_PATH: ${{ runner.temp }}/bin/stockfish

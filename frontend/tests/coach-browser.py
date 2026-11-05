@@ -206,7 +206,8 @@ def check(browser, width, height):
     page.get_by_role('link', name='Тренер', exact=True).click()
     expect(page.get_by_role('textbox', name='Ник на Chess.com')).to_have_value('kimskiy1114')
     expect(page.get_by_label('Контроль времени', exact=True)).to_have_value('300+5')
-    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    viewport_width = page.evaluate('({viewport: innerWidth, content: document.documentElement.scrollWidth})')
+    assert viewport_width['content'] <= viewport_width['viewport'], viewport_width
     page.get_by_role('button', name='Создать мой план').click()
     expect(page.get_by_role('heading', name='Игра становится практикой')).to_be_visible()
     assert ('/coach/start', {'username': 'kimskiy1114', 'time_control': '300+5'}) in posts
@@ -486,6 +487,6 @@ if __name__ == '__main__':
                                     args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
         check_autosave_actions(browser)
         if os.environ.get('COACH_AUTOSAVE_ONLY') != '1':
-            for viewport in [(390, 844), (360, 640), (412, 915), (1280, 900), (740, 390)]:
+            for viewport in [(390, 844), (360, 640), (412, 915), (1280, 900), (651, 390), (700, 390), (740, 390)]:
                 check(browser, *viewport)
         browser.close()

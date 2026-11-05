@@ -459,10 +459,20 @@ def test_unassessed_moves_get_one_retry_and_do_not_disappear(controlled, sources
     assert all(budget.get("nodes", 0) > game_analysis_engine.ANALYSIS_NODES for budget in budgets[2:])
 
 
-def test_real_stockfish_turns_a_personal_blunder_into_a_playable_exercise(controlled, sources):
+def test_real_stockfish_turns_a_personal_blunder_into_a_playable_exercise(controlled, sources, monkeypatch):
+    from dataclasses import replace
+    from app import coach_training, coach_worker
+    from app.config import settings
+
     executable = os.environ.get("TEST_STOCKFISH_PATH", "")
     if not executable or not Path(executable).is_file():
         pytest.skip("Set TEST_STOCKFISH_PATH for the coach engine integration smoke test")
+    # This scenario invokes application workers and routes, so configure their
+    # engine too. Merely checking the test executable leaves them using the
+    # production default (/usr/games/stockfish), which does not exist in CI.
+    engine_settings = replace(settings(), stockfish_path=executable)
+    monkeypatch.setattr(coach_worker, "settings", lambda: engine_settings)
+    monkeypatch.setattr(coach_training, "settings", lambda: engine_settings)
     client, _ = controlled
     sources[0]["2026-11"] = [game(1, START - timedelta(hours=1))]
     profile_id = start(client)["profile"]["id"]
