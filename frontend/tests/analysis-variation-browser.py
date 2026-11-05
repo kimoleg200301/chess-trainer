@@ -1,9 +1,9 @@
 """Exercise alternate lines on the actual board, including special chess moves."""
 import importlib.util
 import json
-import os
 from pathlib import Path
 import subprocess
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 spec = importlib.util.spec_from_file_location('review', Path(__file__).with_name('analysis-browser.py'))
@@ -81,7 +81,7 @@ def check_line(browser, width):
     expect(page.locator('.analysis-piece-badge')).to_have_count(0)
     page.get_by_role('button',name='Сыграно',exact=True).click()
     page.evaluate('window.scrollTo(0,0)')
-    page.screenshot(path=f'/workspace/scratch/analysis-badges-{width}.png',full_page=True)
+    page.screenshot(path=artifact_path(f'analysis-badges-{width}.png'),full_page=True)
     assert not errors and not posts,(errors,posts)
     context.close()
     print(f'PASS {width}px: alternate line from before position, first move, dock/keyboard/swipe/autoplay, original selection, badge geometry in both orientations, fixed board')
@@ -150,6 +150,6 @@ def check_missing_and_invalid(browser):
 
 if __name__=='__main__':
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE','/usr/bin/chromium'),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
+        browser=p.chromium.launch(**chromium_options(),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
         check_line(browser,390);check_line(browser,1280);check_special(browser);check_missing_and_invalid(browser)
         browser.close()

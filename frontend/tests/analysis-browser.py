@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 from urllib.parse import urlparse
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 BASE = os.environ.get('TEST_FRONTEND_URL', 'http://localhost:5174')
@@ -121,7 +122,7 @@ def check_review(browser,width):
     expect(page.locator('.review-position-caption')).to_contain_text('После 1… d5')
     refresh(page)
     expect(page.locator('.review-position-caption')).to_contain_text('После 1… d5')
-    page.screenshot(path=f'/workspace/scratch/analysis-review-{width}.png',full_page=True)
+    page.screenshot(path=artifact_path(f'analysis-review-{width}.png'),full_page=True)
     page.get_by_role('button',name='К партиям',exact=True).click()
     expect(page.get_by_role('navigation',name='Главная навигация')).to_be_visible()
     assert not posts and not errors, (posts,errors)
@@ -139,7 +140,7 @@ def check_progress(browser):
     assert posts[-1]==('/game-analysis',{'game_id':2,'background':True})
     partial.update(cursor=1,moves=deepcopy(reports[1]['moves'][:1]));refresh(page)
     expect(page.get_by_role('progressbar')).to_have_attribute('aria-valuenow','25')
-    page.screenshot(path='/workspace/scratch/analysis-progress.png',full_page=True)
+    page.screenshot(path=artifact_path('analysis-progress.png'),full_page=True)
     page.get_by_role('button',name='К партиям',exact=True).click()
     assert len(posts)==1 and partial['background_requested']
     partial.update(cursor=2,moves=deepcopy(reports[1]['moves'][:2]))
@@ -203,6 +204,6 @@ def check_missing_score_resume(browser):
 
 if __name__=='__main__':
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE','/usr/bin/chromium'),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
+        browser=p.chromium.launch(**chromium_options(),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
         check_review(browser,390);check_review(browser,1280);check_progress(browser);check_old_report(browser);check_missing_score_resume(browser)
         browser.close()

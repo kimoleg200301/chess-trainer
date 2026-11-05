@@ -12,6 +12,7 @@ import BottomMoveControls from './BottomMoveControls';
 import { listenForSoundGestures, playSound } from './sound';
 import { useAttemptTimer } from './useAttemptTimer';
 import { useScreenWakeLock } from './useScreenWakeLock';
+import { useTrainingStats } from './useTrainingStats';
 import { formatDuration } from './time';
 import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
@@ -30,13 +31,17 @@ function Spinner() { return <LoaderCircle size={18} className="spinner" aria-hid
 function ErrorNotice({ message, close }: { message: string; close?: () => void }) { return <div className="error-notice" role="alert"><span>{message}</span>{close && <button aria-label="Закрыть сообщение" onClick={close}><X size={16} /></button>}</div>; }
 function Empty({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) { return <div className="empty-state"><span className="empty-icon">{icon}</span><h3>{title}</h3><p>{children}</p></div>; }
 
-function Login({ onLogin, initialError }: { onLogin: (name: string) => void; initialError: string }) {
+function Login({ onLogin, initialError, sessionEnding }: { onLogin: (name: string) => void; initialError: string; sessionEnding: boolean }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   async function submit(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    // A pending logout can still expire the browser cookie. Finish it before
+    // allowing a new login, including submissions with Enter or via the form.
+    if (busy || sessionEnding) return;
+    setBusy(true); setError('');
     try { const result = await api<{ username: string }>('/auth/login', { username, password }); onLogin(result.username); }
     catch (err) { setError(errorText(err)); } finally { setBusy(false); }
   }
@@ -48,7 +53,7 @@ function Login({ onLogin, initialError }: { onLogin: (name: string) => void; ini
         <div className="login-points"><span><CheckCircle2 size={17} /> Мотивы из реальных партий</span><span><RotateCcw size={17} /> Повторение трудных позиций</span></div>
       </div>
       <div className="login-card"><span className="label-small">ЛИЧНЫЙ ТРЕНАЖЁР</span><h2>Вернёмся к практике</h2><p className="muted">Войдите, чтобы сохранять свой прогресс.</p>
-        <form onSubmit={submit}><label>Имя пользователя<input autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} placeholder="Ваш логин" required autoFocus /></label><label>Пароль<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Введите пароль" required /></label>{error && <ErrorNotice message={error} />}<button className="button primary login-submit" disabled={busy}>{busy ? <Spinner /> : <>Начать практику <ArrowRight size={18} /></>}</button></form>
+        <form onSubmit={submit}><label>Имя пользователя<input autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} placeholder="Ваш логин" required autoFocus /></label><label>Пароль<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Введите пароль" required /></label>{error && <ErrorNotice message={error} />}<button className="button primary login-submit" disabled={busy || sessionEnding}>{sessionEnding ? <><Spinner /> Завершаем выход…</> : busy ? <Spinner /> : <>Начать практику <ArrowRight size={18} /></>}</button></form>
         <div className="login-foot"><ShieldCheck size={17} /><span>Личный доступ. Ваши задачи и прогресс<br />сохраняются в аккаунте.</span></div>
       </div>
     </section>
@@ -248,9 +253,13 @@ function Trainer({ meta, stats, onChanged, visible, screen, onScreenChange, coll
   }, [attempt?.id, reveal, initialFen, replayIndex, visible, screen]);
 
   useEffect(() => {
-    if (!launch || !visible || restoring) return;
-    void start(true, launch.puzzleId, launch.collection).finally(onLaunchHandled);
-  }, [launch, visible, restoring]);
+    if (!launch || !visible || restoring || busy || analysisBusy || actionPending.current) return;
+    // Keep the request queued while another action finishes. Consume only the
+    // dispatched launch, so its eventual response cannot clear a newer choice.
+    onCollectionChange(launch.collection);
+    void start(true, launch.puzzleId, launch.collection);
+    onLaunchHandled();
+  }, [launch, visible, restoring, busy, analysisBusy]);
 
   useEffect(() => {
     if (visible && screen === 'session' && !restoring && !restoreError && !attempt && !collectionFinished && !busy) {
@@ -437,9 +446,8 @@ export default function App() {
   const [practiceLaunch, setPracticeLaunch] = useState<PracticeLaunch | null>(null);
   const catalogVersion = useRef(0);
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState('');
-  const [statsBusy, setStatsBusy] = useState(false);
+  const { stats, busy: statsBusy, refresh: refreshStats } = useTrainingStats(user, setError);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const refreshCatalog = useCallback(async () => {
@@ -454,11 +462,10 @@ export default function App() {
     changeCollection(source); navigate('/');
     setPracticeLaunch({ token: Date.now(), puzzleId, collection: source });
   }
-  const refreshStats = useCallback(async () => { setStatsBusy(true); try { setStats(await api<Stats>('/stats')); } catch (err) { setError(errorText(err)); } finally { setStatsBusy(false); } }, []);
   useEffect(() => {
     let active = true;
     api<{ username: string }>('/auth/me').then(data => { if (active) setUser(data.username); }).catch(err => { if (active && !(err instanceof ApiError && err.status === 401)) setError(errorText(err)); }).finally(() => { if (active) setLoading(false); });
-    const expired = () => { setUser(null); setMeta(null); setStats(null); setPracticeLaunch(null); setCollection('lichess'); catalogVersion.current++; };
+    const expired = () => { setUser(null); setMeta(null); setPracticeLaunch(null); setCollection('lichess'); catalogVersion.current++; };
     window.addEventListener('session-expired', expired);
     return () => { active = false; window.removeEventListener('session-expired', expired); };
   }, []);
@@ -477,9 +484,9 @@ export default function App() {
   }, [pathname, tab, trainingScreen]);
   useEffect(() => { if (user) { void refreshCatalog(); void refreshStats(); } }, [user, refreshStats, refreshCatalog]);
   useEffect(() => { if (user && tab === 'stats') void refreshStats(); }, [user, tab, refreshStats]);
-  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); catalogVersion.current++; setCollection('lichess'); setUser(null); setMeta(null); setStats(null); setError(''); setPracticeLaunch(null); navigate('/login', { replace: true }); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
+  async function logout() { setLogoutBusy(true); try { await api('/auth/logout', {}); catalogVersion.current++; setCollection('lichess'); setUser(null); setMeta(null); setError(''); setPracticeLaunch(null); navigate('/login', { replace: true }); } catch (err) { setError(errorText(err)); } finally { setLogoutBusy(false); } }
   if (loading) return <div className="app-loading"><Brand subtitle /><Spinner /><p>Готовим доску…</p></div>;
-  if (!user) return <Login initialError={error} onLogin={name => { setUser(name); setError(''); setPracticeLaunch(null); navigate(loginDestination(searchParams.get('next')), { replace: true }); }} />;
+  if (!user) return <Login initialError={error} sessionEnding={logoutBusy} onLogin={name => { setUser(name); setError(''); setPracticeLaunch(null); navigate(loginDestination(searchParams.get('next')), { replace: true }); }} />;
   return <div className={`app-shell ${inSession ? 'session-shell' : ''} ${tab === 'coach' && coachFocused ? 'coach-practice-shell' : ''}`}>
     {!inSession && <header className="header"><div className="header-inner">
       <Link href="/" className="brand-link" aria-label="Тактика — главная"><Brand /></Link>

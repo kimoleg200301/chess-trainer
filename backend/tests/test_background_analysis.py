@@ -190,3 +190,51 @@ def test_batches_and_reports_share_the_queue_without_starvation(controlled, fake
     assert worker.run_once() and worker.run_once()
     assert controlled.get(f"/api/imports/{job_id}").json()["games"][0]["cursor"] == 2
     assert controlled.get(f"/api/game-analysis/{report['id']}").json()["cursor"] == 1
+
+
+def test_broken_tasks_do_not_starve_later_reports_and_roll_back_only_their_work(
+        controlled, fake_engine, monkeypatch, caplog):
+    from app import game_analysis_api
+    from app.background import AnalysisWorker
+    from app.db import engine
+    from app.models import GameAnalysis
+
+    reports = []
+    for index in range(4):
+        game_id, _, _ = imported_game(fingerprint=f"queue-isolation-{index}")
+        report = start(controlled, game_id)
+        controlled.post(f"/api/game-analysis/{report['id']}/resume", json={})
+        reports.append(report)
+    broken_ids = {report["id"] for report in reports[:-1]}
+    original = game_analysis_api.process_step
+    visited = []
+
+    def broken_step(record_id, db, user, *, background=False):
+        visited.append(record_id)
+        if record_id in broken_ids:
+            # A handler can fail after a flushed write. The next task must get
+            # its own usable transaction, and this write must not be committed.
+            db.get(GameAnalysis, record_id).cursor = 999
+            db.flush()
+            raise RuntimeError("Unexpected task failure")
+        return original(record_id, db, user, background=background)
+
+    monkeypatch.setattr(game_analysis_api, "process_step", broken_step)
+    worker = AnalysisWorker()
+    assert worker.run_once()
+    assert visited == [report["id"] for report in reports]
+    errors = [record for record in caplog.records if "Background task" in record.message]
+    assert len(errors) == len(broken_ids)
+    assert all(record.exc_info for record in errors)
+    with Session(engine()) as db:
+        for record_id in broken_ids:
+            saved = db.get(GameAnalysis, record_id)
+            assert saved.cursor == 0 and saved.moves == []
+            assert saved.status == "ready" and saved.background_requested
+        assert db.get(GameAnalysis, reports[-1]["id"]).cursor == 1
+
+    # A transient failure keeps its place and can continue from its checkpoint.
+    monkeypatch.setattr(game_analysis_api, "process_step", original)
+    assert worker.run_once()
+    with Session(engine()) as db:
+        assert db.get(GameAnalysis, reports[0]["id"]).cursor == 1

@@ -4,7 +4,8 @@ import math
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from .models import Attempt, Puzzle, User
+from .models import Attempt, Puzzle
+from .transactions import lock_user
 
 
 def previously_finished(db: Session, user_id: int, puzzle: Puzzle, attempt_id: int | None = None) -> bool:
@@ -25,8 +26,7 @@ def apply_rating(db: Session, attempt: Attempt, *, clean: bool):
         return
     # All training mutations lock User, then Attempt, then Puzzle. This also
     # serializes two devices finishing different attempts for the same account.
-    user = db.scalar(select(User).where(User.id == attempt.user_id).with_for_update()
-                     .execution_options(populate_existing=True))
+    user = lock_user(db, attempt.user_id)
     if previously_finished(db, user.id, attempt.puzzle, attempt.id):
         attempt.rated = False
         return

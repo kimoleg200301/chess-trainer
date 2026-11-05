@@ -182,6 +182,26 @@ def test_rated_snapshot_roundtrip_keeps_current_task_and_rating(logged):
         assert attempt.training_options['adaptive'] is True
 
 
+def test_export_refreshes_account_loaded_before_another_session_finishes(logged):
+    from app.db import engine
+    from app.models import User
+    from app.progress import export_snapshot
+
+    personal()
+    attempt = start(logged)
+    with Session(engine()) as export_db:
+        # Authentication loads User before export obtains its account lock.
+        user = export_db.scalar(select(User).where(User.username == 'tester'))
+        assert user.puzzle_rating == 1200 and user.rated_attempts == 0
+        finished = solve(logged, attempt)
+        snapshot = export_snapshot(export_db, user)
+
+    assert snapshot.puzzle_rating == finished['rating_change']['after'] == 1216
+    assert snapshot.rated_attempts == 1
+    assert len(snapshot.attempts) == len(snapshot.reviews) == 1
+    assert snapshot.attempts[0].rating_change.after == snapshot.puzzle_rating
+
+
 def test_rating_migration_keeps_legacy_progress_without_regrading(logged):
     from alembic import command
     from alembic.config import Config

@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import DateTime, case, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -20,6 +19,7 @@ from .engine_resources import engine_slots
 from .game_sources import chesscom_accuracies, safe_game_url, source_game_time
 from .models import GameAnalysis, GameFavorite, ImportedGame, ImportJob, User, now
 from .security import current_user
+from .transactions import lock_user
 from .chesscom_sync import SyncRequest, get_sync, request_sync
 
 router = APIRouter(prefix="/api/game-analysis")
@@ -52,16 +52,6 @@ class StartGameAnalysis(BackgroundStart):
     game_id: int = Field(strict=True, gt=0)
 
 
-def lock_user(db: Session, user_id: int):
-    try:
-        db.scalar(select(User).where(User.id == user_id).with_for_update(nowait=True))
-    except DBAPIError as exc:
-        if getattr(exc.orig, "sqlstate", None) != "55P03":
-            raise
-        db.rollback()
-        raise HTTPException(409, "Другая операция ещё выполняется. Повторите через несколько секунд.") from None
-
-
 def owned_game(db: Session, game_id: int, user_id: int) -> tuple[ImportedGame, ImportJob]:
     row = db.execute(select(ImportedGame, ImportJob).join(ImportJob, ImportedGame.job_id == ImportJob.id)
                      .where(ImportedGame.id == game_id, ImportJob.user_id == user_id,
@@ -87,7 +77,7 @@ def lock_analysis(db: Session, analysis_id: int, user_id: int):
     # steps/restarts cannot queue several expensive engine searches for one game.
     if not db.scalar(select(func.pg_try_advisory_xact_lock(LOCK_NAMESPACE, analysis_id))):
         raise HTTPException(409, "Эта партия уже обрабатывается. Дождитесь текущего шага.")
-    lock_user(db, user_id)
+    lock_user(db, user_id, nowait=True)
 
 
 def game_view(game: ImportedGame, job: ImportJob, analysis: GameAnalysis | None = None) -> dict:
@@ -220,7 +210,7 @@ def sync_games(body: SyncRequest, db: Session = Depends(get_db), user: User = De
 @router.post("")
 def start_analysis(body: StartGameAnalysis, db: Session = Depends(get_db), user: User = Depends(current_user)):
     game, job = owned_game(db, body.game_id, user.id)
-    lock_user(db, user.id)
+    lock_user(db, user.id, nowait=True)
     previous = db.scalar(select(GameAnalysis).where(GameAnalysis.user_id == user.id,
                                                     GameAnalysis.fingerprint == game.fingerprint))
     if previous is not None:

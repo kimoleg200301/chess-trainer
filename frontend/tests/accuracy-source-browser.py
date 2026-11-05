@@ -1,8 +1,8 @@
 """Verify source accuracy stays separate from local review results on the real UI."""
 import importlib.util
-import os
 from pathlib import Path
 
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import expect, sync_playwright
 
 spec = importlib.util.spec_from_file_location('review', Path(__file__).with_name('analysis-browser.py'))
@@ -27,7 +27,7 @@ def check_source(browser, width):
         expect(card.locator('.analysis-local-accuracy > strong')).to_have_text('90.0%')
         expect(card.locator('.analysis-local-accuracy')).to_contain_text('Оценка тренажёра')
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    page.locator('.analysis-summary').screenshot(path=f'/workspace/scratch/accuracy-source-{width}.png')
+    page.locator('.analysis-summary').screenshot(path=artifact_path(f'accuracy-source-{width}.png'))
     assert not errors and not posts, (errors, posts)
     context.close()
     print(f'PASS {width}px: original two-decimal accuracy and independent local result')
@@ -88,7 +88,7 @@ def check_calibrated(browser, width, reference_side):
     expect(page.locator('.analysis-method-note')).to_contain_text('Приближение проверено для обоих игроков на партиях с контролем 5+5')
     expect(page.locator('.analysis-accuracy-cards')).not_to_contain_text('90.0%')
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    page.locator('.analysis-summary').screenshot(path=f'/workspace/scratch/accuracy-calibrated-{width}.png')
+    page.locator('.analysis-summary').screenshot(path=artifact_path(f'accuracy-calibrated-{width}.png'))
     assert not errors and not posts, (errors, posts)
     context.close()
     print(f'PASS {width}px: both players calibrated, independent {reference_side} reference, raw score not duplicated')
@@ -121,7 +121,7 @@ def check_one_side_incomplete(browser, incomplete_side):
 
 if __name__ == '__main__':
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE', '/usr/bin/chromium'),
+        browser = p.chromium.launch(**chromium_options(),
                                     args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
         check_source(browser, 390)
         check_source(browser, 1280)

@@ -95,9 +95,13 @@ class AnalysisWorker:
                         result = process(record_id, db, user, background=True)
                         if result is not None:
                             return True
-                    except HTTPException as exc:
-                        if exc.status_code not in (404, 409, 503):
-                            raise
+                    except Exception as exc:
+                        if not isinstance(exc, HTTPException) or exc.status_code not in (404, 409, 503):
+                            # Isolate a broken task from the rest of the queue.
+                            # Closing this session rolls back its unfinished work;
+                            # durable intent remains available for a later retry.
+                            logger.exception("Background task %s record %s failed; saved checkpoints retained",
+                                             process.__module__, record_id)
                         # Busy engine/user: retry later. Engine failures disable
                         # the job in process_step and preserve its last checkpoint.
             return False

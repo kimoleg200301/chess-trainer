@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+from browser_support import chromium_options
 from playwright.sync_api import sync_playwright, expect
 
 BASE = os.environ.get('TEST_FRONTEND_URL', 'http://127.0.0.1:5174')
@@ -481,7 +482,7 @@ def check_autosave_actions(browser):
 
 if __name__ == '__main__':
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE', '/usr/bin/chromium'),
+        browser = p.chromium.launch(**chromium_options(),
                                     args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
         check_autosave_actions(browser)
         if os.environ.get('COACH_AUTOSAVE_ONLY') != '1':

@@ -5,8 +5,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Attempt, Puzzle, Review, User, now
+from .models import Attempt, Puzzle, Review, now
 from .ratings import apply_rating
+from .transactions import lock_user
 
 
 def attempt_view(attempt: Attempt) -> dict:
@@ -29,7 +30,7 @@ def attempt_view(attempt: Attempt) -> dict:
 
 
 def get_attempt(db: Session, attempt_id: int, user_id: int, active: bool = True) -> Attempt:
-    db.scalar(select(User).where(User.id == user_id).with_for_update())
+    lock_user(db, user_id)
     attempt = db.scalar(select(Attempt).where(Attempt.id == attempt_id, Attempt.user_id == user_id)
                         .with_for_update(of=Attempt))
     if not attempt:
@@ -48,7 +49,7 @@ def record_elapsed(attempt: Attempt, elapsed_ms: int | None):
 
 def schedule_review(db: Session, attempt: Attempt, clean: bool = False):
     # Serialize review updates for a user, including creation of a new review row.
-    db.scalar(select(User).where(User.id == attempt.user_id).with_for_update())
+    lock_user(db, attempt.user_id)
     review = db.scalar(select(Review).where(Review.user_id == attempt.user_id,
                                            Review.puzzle_id == attempt.puzzle_id))
     if not review:

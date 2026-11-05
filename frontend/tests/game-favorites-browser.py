@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 from urllib.parse import urlparse
 
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 spec = importlib.util.spec_from_file_location('review', Path(__file__).with_name('analysis-browser.py'))
@@ -76,7 +77,7 @@ def check_saved(browser, width):
     page.get_by_role('button',name='К партиям',exact=True).click()
     expect(page.locator('.analysis-game-card')).to_have_count(1)
     expect(page.get_by_role('button',name='Избранные',exact=True)).to_have_attribute('aria-pressed','true')
-    page.screenshot(path=f'/workspace/scratch/game-favorites-{width}.png',full_page=True)
+    page.screenshot(path=artifact_path(f'game-favorites-{width}.png'),full_page=True)
     other,other_page,other_errors=setup(browser,data,width)
     expect(star(other_page,True)).to_be_visible()
     star(other_page,True).click();expect(star(other_page)).to_be_visible()
@@ -115,6 +116,6 @@ def check_errors_and_races(browser):
 
 if __name__=='__main__':
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
+        browser=p.chromium.launch(**chromium_options(),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
         check_saved(browser,390);check_saved(browser,1280);check_errors_and_races(browser)
         browser.close()

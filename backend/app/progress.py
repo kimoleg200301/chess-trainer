@@ -10,6 +10,7 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from .models import Attempt, Puzzle, Review, User, now
+from .transactions import lock_user
 
 MAX_RECORDS = 10_000
 MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024
@@ -172,7 +173,7 @@ REVIEW_FIELDS = tuple(ReviewRecord.model_fields)
 
 
 def export_snapshot(db: Session, user: User) -> ProgressSnapshot:
-    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    user = lock_user(db, user.id)
     attempts = list(db.scalars(select(Attempt).where(Attempt.user_id == user.id).order_by(Attempt.id).limit(MAX_RECORDS + 1)))
     reviews = list(db.scalars(select(Review).where(Review.user_id == user.id).order_by(Review.id).limit(MAX_RECORDS + 1)))
     referenced_ids = {row.puzzle_id for row in [*attempts, *reviews]}
@@ -264,7 +265,8 @@ def restore_snapshot(db: Session, snapshot: ProgressSnapshot, username: str) -> 
     """
     from .collections import generate_puzzle_id
 
-    user = db.scalar(select(User).where(User.username == username).with_for_update())
+    user = db.scalar(select(User).where(User.username == username).with_for_update()
+                     .execution_options(populate_existing=True))
     if not user:
         raise ValueError("Пользователь назначения не найден. Сначала выполните bootstrap.")
     occupied = (

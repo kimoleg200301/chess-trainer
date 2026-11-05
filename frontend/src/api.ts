@@ -53,7 +53,16 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); }
 }
 
+let sessionRevision = 0;
+
+/** Responses from a previous login must not update the current account. */
+export function captureSession() {
+  const revision = sessionRevision;
+  return () => revision === sessionRevision;
+}
+
 export async function api<T>(path: string, body?: unknown, method?: string, options: { keepalive?: boolean } = {}): Promise<T> {
+  const isCurrentSession = captureSession();
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
@@ -66,11 +75,15 @@ export async function api<T>(path: string, body?: unknown, method?: string, opti
     let message = response.status === 401 ? 'Войдите в аккаунт, чтобы продолжить.' : `Ошибка сервера (${response.status}). Попробуйте ещё раз.`;
     let code: string | undefined;
     try { const data = await response.json(); if (typeof data.detail === 'string') message = data.detail; if (typeof data.code === 'string') code = data.code; } catch { /* Keep readable fallback. */ }
-    if (response.status === 401 && path !== '/auth/login') window.dispatchEvent(new Event('session-expired'));
+    if (response.status === 401 && path !== '/auth/login' && isCurrentSession()) {
+      sessionRevision++;
+      window.dispatchEvent(new Event('session-expired'));
+    }
     throw new ApiError(message, response.status, code);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  const result = response.status === 204 ? undefined as T : await response.json() as T;
+  if (path === '/auth/login' || (path === '/auth/logout' && isCurrentSession())) sessionRevision++;
+  return result;
 }
 
 

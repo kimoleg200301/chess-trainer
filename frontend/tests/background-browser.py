@@ -5,6 +5,7 @@ from copy import deepcopy
 import os
 from urllib.parse import urlparse
 
+from browser_support import chromium_options
 from playwright.sync_api import sync_playwright, expect
 
 BASE = os.environ.get("TEST_FRONTEND_URL", "http://localhost:5174")
@@ -49,7 +50,7 @@ FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
 def run():
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE', '/usr/bin/chromium'), args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
+        browser = p.chromium.launch(**chromium_options(), args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
         page = browser.new_page()
         errors, posts = [], []
         page.on('pageerror', lambda error: errors.append(str(error)))

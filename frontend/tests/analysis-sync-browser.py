@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
 from urllib.parse import urlparse
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 spec=importlib.util.spec_from_file_location('review',Path(__file__).with_name('analysis-browser.py'))
@@ -108,7 +109,7 @@ def check_auto_edit_and_error(browser):
     expect(page.get_by_role('region',name='Синхронизация Chess.com').get_by_label('Ник на Chess.com',exact=True)).to_have_value('new-name')
     assert len(data['posts'])==2
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    page.screenshot(path='/workspace/scratch/analysis-sync-mobile.png',full_page=True)
+    page.screenshot(path=artifact_path('analysis-sync-mobile.png'),full_page=True)
     assert not errors,errors
     context.close()
     print('PASS sync: automatic check, edit survives polling, stale response ignored, failed sync retains nickname and games')
@@ -155,6 +156,6 @@ def check_periodic(browser):
 
 if __name__=='__main__':
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
+        browser=p.chromium.launch(**chromium_options(),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
         check_saved_and_completed(browser);check_auto_edit_and_error(browser);check_refresh_and_history(browser);check_periodic(browser)
         browser.close()

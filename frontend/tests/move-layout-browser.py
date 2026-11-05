@@ -3,6 +3,7 @@ Run with Vite on 5174 and Python Playwright / Chromium installed.
 """
 import importlib.util
 from pathlib import Path
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 
@@ -75,7 +76,7 @@ def check_review(browser, width):
     frame(page); docked(page)
     page.set_viewport_size({'width':width,'height':844})
     page.evaluate('window.scrollTo(0, 0)')
-    page.screenshot(path=f'/workspace/scratch/fixed-review-{width}.png')
+    page.screenshot(path=artifact_path(f'fixed-review-{width}.png'))
     page.get_by_role('button',name='К партиям',exact=True).click()
     expect(page.locator('.move-navigation-dock')).to_have_count(0)
     assert not errors, errors
@@ -110,7 +111,7 @@ def check_training(browser):
     frame(page); docked(page)
     page.set_viewport_size({'width':360,'height':800})
     page.evaluate('window.scrollTo(0, 0)')
-    page.screenshot(path='/workspace/scratch/fixed-training-360.png')
+    page.screenshot(path=artifact_path('fixed-training-360.png'))
     page.get_by_role('button',name='К настройкам',exact=True).tap()
     expect(page.locator('.move-navigation-dock')).to_have_count(0)
     assert not errors, errors
@@ -120,7 +121,7 @@ def check_training(browser):
 
 if __name__ == '__main__':
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
+        browser = p.chromium.launch(**chromium_options(),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
         for width in (360,390,1280): check_review(browser,width)
         check_training(browser)
         browser.close()

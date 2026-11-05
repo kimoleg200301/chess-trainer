@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .engine_resources import engine_slots
-from .imports_api import lock_user
 from .models import CoachAttempt, CoachGame, CoachProfile, CoachReview, Puzzle, User, now
 from .security import current_user
+from .transactions import lock_user
 
 router = APIRouter()
 MOVE_CHECK_VERSION = 1
@@ -43,7 +43,7 @@ class MoveBody(TimingBody):
 
 def owned_attempt(db: Session, attempt_id: int, user_id: int, *, mutate: bool = False) -> CoachAttempt:
     if mutate:
-        lock_user(db, user_id)
+        lock_user(db, user_id, nowait=True)
     query = select(CoachAttempt).join(CoachProfile).where(CoachAttempt.id == attempt_id,
                                                          CoachProfile.user_id == user_id)
     if mutate:
@@ -210,7 +210,7 @@ def candidate_games(db: Session, profile_id: int, game_id: int | None):
 def start_practice(body: PracticeBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     from .coach_api import dashboard, owned_profile
     from .coach_insights import SKILLS
-    lock_user(db, user.id)
+    lock_user(db, user.id, nowait=True)
     profile = owned_profile(db, user.id)
     if db.scalar(select(CoachGame.id).where(CoachGame.coach_id == profile.id).limit(1)) is None:
         raise HTTPException(409, "Сначала дождитесь загрузки хотя бы одной партии. Если выбранный профиль или контроль неверен, исправьте настройки.")

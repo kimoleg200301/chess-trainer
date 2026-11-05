@@ -6,6 +6,7 @@ import importlib.util
 import os
 from pathlib import Path
 from urllib.parse import urlparse
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 spec=importlib.util.spec_from_file_location('sound',Path(__file__).with_name('sound-browser.py'))
@@ -76,7 +77,7 @@ def check(browser,width):
     expect(page.locator('.solved-marker')).to_have_count(1)
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
     page.evaluate('window.scrollTo(0,0)')
-    page.screenshot(path=f'/workspace/scratch/training-result-{width}.png',full_page=True)
+    page.screenshot(path=artifact_path(f'training-result-{width}.png'),full_page=True)
     page.reload()
     expect(page.locator('.rating-delta')).to_have_text('+16')
     expect(page.locator('[data-square="d5"] img')).to_have_attribute('src','/pieces/wP.svg')
@@ -100,6 +101,6 @@ def check(browser,width):
 
 if __name__=='__main__':
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
+        browser=p.chromium.launch(**chromium_options(),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
         for width in [360,390,1280]:check(browser,width)
         browser.close()

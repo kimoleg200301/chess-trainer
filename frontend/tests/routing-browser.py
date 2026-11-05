@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from urllib.parse import parse_qs, quote, urlparse
 
+from browser_support import chromium_options
 from playwright.sync_api import sync_playwright, expect
 
 BASE = os.environ.get('TEST_FRONTEND_URL', 'http://127.0.0.1:5174').rstrip('/')
@@ -287,7 +288,7 @@ def check_missing_and_stale(browser):
 if __name__ == '__main__':
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
-            executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE', '/usr/bin/chromium'),
+            **chromium_options(),
             args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
         for check in (check_main_routes, check_training, check_details, check_login_return, check_missing_and_stale):
             check(browser)

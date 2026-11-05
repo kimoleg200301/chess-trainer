@@ -3,6 +3,7 @@ Run with Vite on 5174 and Python Playwright / Chromium installed.
 """
 import os
 from urllib.parse import urlparse
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 INITIAL = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
@@ -60,7 +61,7 @@ def check(browser, width):
     assert not requests
     personal_setup()
     expect(page.get_by_role('alert')).to_have_count(0)
-    page.screenshot(path=f'/workspace/scratch/personal-setup-{width}.png',full_page=True)
+    page.screenshot(path=artifact_path(f'personal-setup-{width}.png'),full_page=True)
     page.get_by_role('button',name='Начать тренировку',exact=True).click()
     expect(page.get_by_role('region',name='Решение позиции')).to_be_visible()
     assert requests[-1]==dict(collection='personal',theme=None,min_rating=0,max_rating=4000,mode='practice',adaptive=True)
@@ -93,6 +94,6 @@ def check(browser, width):
 
 if __name__=='__main__':
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
+        browser=p.chromium.launch(**chromium_options(),args=['--no-sandbox','--disable-features=LocalNetworkAccessChecks'])
         check(browser,360);check(browser,1280)
         browser.close()

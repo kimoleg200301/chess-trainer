@@ -141,7 +141,7 @@ def _save_games(db: Session, user: User, username: str, batches: list[tuple[str,
 
 
 def process_step(record_id: int, db: Session, user: User, *, background: bool = False):
-    from .imports_api import lock_user
+    from .transactions import lock_user
     record = db.scalar(select(ChessComSync).where(ChessComSync.id == record_id, ChessComSync.user_id == user.id))
     if record is None:
         raise HTTPException(404, "Настройки синхронизации не найдены.")
@@ -166,7 +166,7 @@ def process_step(record_id: int, db: Session, user: User, *, background: bool = 
         return True
     # Follow the existing import/restore lock order. A busy user is retried by
     # the worker with saved intent, without marking an upstream failure.
-    lock_user(db, user.id)
+    lock_user(db, user.id, nowait=True)
     db.refresh(record, with_for_update=True)
     if record.revision != revision or not record.background_requested:
         db.rollback()

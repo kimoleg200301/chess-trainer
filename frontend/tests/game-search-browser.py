@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from browser_support import chromium_options, artifact_path
 from playwright.sync_api import sync_playwright, expect
 
 spec = importlib.util.spec_from_file_location('favorites', Path(__file__).with_name('game-favorites-browser.py'))
@@ -56,7 +57,7 @@ def check_search(browser, width):
     field.fill('ARCHIVE')
     expect(page.get_by_role('link', name='Открыть партию ArchivePlayer — OldOpponent', exact=True)).to_be_visible()
     assert 'archive' in controls['queries'], 'Old games must be searched on the server'
-    page.screenshot(path=f'/workspace/scratch/game-search-{width}.png', full_page=True)
+    page.screenshot(path=artifact_path(f'game-search-{width}.png'), full_page=True)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     field.fill('not-a-player')
     expect(page.get_by_role('heading', name='Партии не найдены', exact=True)).to_be_visible()
@@ -102,6 +103,6 @@ def check_races(browser):
 
 if __name__ == '__main__':
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
+        browser = p.chromium.launch(**chromium_options(), args=['--no-sandbox', '--disable-features=LocalNetworkAccessChecks'])
         check_search(browser, 390); check_search(browser, 1280); check_races(browser)
         browser.close()

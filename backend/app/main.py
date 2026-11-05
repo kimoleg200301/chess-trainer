@@ -27,6 +27,7 @@ from .ratings import previously_finished
 from .security import create_session, current_user, hash_password, login_limiter, token_hash, verify_password
 from .themes import THEMES
 from .training import attempt_view, finalize, get_attempt, play_move, record_elapsed, schedule_review, solution
+from .transactions import lock_user
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -182,8 +183,7 @@ def resume_training(attempt_id: int, db: Session = Depends(get_db), user: User =
 @app.post("/api/training/start")
 def start(body: StartBody, db: Session = Depends(get_db), user: User = Depends(current_user)):
     # Also serialize against an administrative restore into a previously empty account.
-    user = db.scalar(select(User).where(User.id == user.id).with_for_update()
-                     .execution_options(populate_existing=True))
+    user = lock_user(db, user.id)
     options = body.model_dump(exclude={"puzzle_id", "exclude_attempt_id"})
     if body.puzzle_id:
         # An explicit puzzle link is an intentional replay, as is review mode.

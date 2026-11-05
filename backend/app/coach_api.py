@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models import CoachAttempt, CoachGame, CoachProfile, CoachReview, User, now
 from .security import current_user
+from .transactions import lock_user
 
 router = APIRouter(prefix="/api/coach")
 
@@ -110,7 +111,7 @@ def get_coach(db: Session = Depends(get_db), user: User = Depends(current_user))
 
 @router.post("/start")
 def start_coach(body: StartCoach, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    lock_user(db, user.id)
     profile = db.scalar(select(CoachProfile).where(CoachProfile.user_id == user.id))
     if profile:
         if (profile.username, profile.time_control) != (body.username, body.time_control):

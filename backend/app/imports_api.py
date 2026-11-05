@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from .collections import generate_puzzle_id
@@ -23,6 +22,7 @@ from .game_sources import (chesscom_accuracies, chesscom_game_url, chesscom_game
                            safe_game_url, source_game_time)
 from .models import ImportJob, ImportedGame, Improvement, Puzzle, User, now
 from .security import current_user
+from .transactions import lock_user
 
 router = APIRouter(prefix="/api")
 ANALYSIS_VERSION = 2
@@ -57,18 +57,6 @@ def owned_job(db: Session, job_id: int, user_id: int) -> ImportJob:
     if not job:
         raise HTTPException(404, "Подборка партий не найдена.")
     return job
-
-
-
-def lock_user(db: Session, user_id: int):
-    """Serialize bank changes with backup/restore without queuing engine requests."""
-    try:
-        db.scalar(select(User).where(User.id == user_id).with_for_update(nowait=True))
-    except DBAPIError as exc:
-        if getattr(exc.orig, "sqlstate", None) != "55P03":
-            raise
-        db.rollback()
-        raise HTTPException(409, "Другая операция с вашей подборкой ещё выполняется. Повторите через несколько секунд.") from None
 
 
 def candidate_view(candidate: Improvement, pending: bool = False) -> dict:
@@ -170,7 +158,7 @@ def create_job(db: Session, user: User, source: str, games: list[dict], username
         raise HTTPException(422, "В подборке нет корректных завершённых партий.")
     identity = hashlib.sha256(json.dumps([ANALYSIS_VERSION, source, username, month, sorted(unique)], separators=(",", ":")).encode()).hexdigest()
     # Serializes repeated imports and generated-progress restore for this user.
-    lock_user(db, user.id)
+    lock_user(db, user.id, nowait=True)
     if source == "chesscom":
         references = refresh_chesscom_accuracies(db, user.id, games)
         unique = {key: {**game, "chesscom_accuracies": references.get(key)}
@@ -277,7 +265,7 @@ def backfill_generated_puzzles(db: Session) -> int:
     locked_user = None
     for candidate, game, job in rows:
         if job.user_id != locked_user:
-            db.scalar(select(User).where(User.id == job.user_id).with_for_update())
+            lock_user(db, job.user_id)
             locked_user = job.user_id
         if candidate.data.get("puzzle") is not None:
             try:
@@ -344,7 +332,7 @@ def process_step(job_id: int, db: Session, user: User, *, background: bool = Fal
     job = owned_job(db, job_id, user.id)
     if not db.scalar(select(func.pg_try_advisory_xact_lock(782104, job_id))):
         raise HTTPException(409, "Эта подборка уже обрабатывается. Дождитесь текущего шага.")
-    lock_user(db, user.id)
+    lock_user(db, user.id, nowait=True)
     db.refresh(job)
     if background and (not job.background_requested or job.status not in {"ready", "running"}):
         return None
@@ -417,7 +405,7 @@ def reanalyse_import(job_id: int, body: BackgroundStart = BackgroundStart(), db:
     job = owned_job(db, job_id, user.id)
     if not db.scalar(select(func.pg_try_advisory_xact_lock(782104, job_id))):
         raise HTTPException(409, "Подождите завершения текущего шага, затем повторите анализ.")
-    lock_user(db, user.id)
+    lock_user(db, user.id, nowait=True)
     # Store old cards until their position is rechecked. Their training tasks and
     # attempts remain intact even if the new search no longer finds an error.
     for game in db.scalars(select(ImportedGame).where(ImportedGame.job_id == job.id)):
@@ -445,7 +433,7 @@ def pause_import(job_id: int, db: Session = Depends(get_db), user: User = Depend
 
 @router.post("/candidates/{candidate_id}/puzzle")
 def candidate_to_puzzle(candidate_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    lock_user(db, user.id)
+    lock_user(db, user.id, nowait=True)
     row = db.execute(select(Improvement, ImportedGame, ImportJob).join(ImportedGame, Improvement.game_id == ImportedGame.id)
                      .join(ImportJob, ImportedGame.job_id == ImportJob.id)
                      .where(Improvement.id == candidate_id, ImportJob.user_id == user.id)
