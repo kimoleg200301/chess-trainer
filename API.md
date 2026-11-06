@@ -3,6 +3,8 @@
 Same-origin `/api`; authenticated session cookie. Personal app, no public signup.
 All failures use `{ "detail": "human-readable Russian error" }`.
 
+The primary service is `http://10.66.0.2:8080` over WireGuard. Its deployment and update procedure is [deploy/SERVER.md](deploy/SERVER.md); the API contract below does not replace the restored-database configuration or server update steps.
+
 ## Authentication
 - `POST /api/auth/login` JSON `{username,password}` -> `{username}` and HttpOnly session cookie.
 - `GET /api/auth/me` -> `{username}`; 401 otherwise.
@@ -179,7 +181,7 @@ Coach tables are included in full PostgreSQL backups. Existing `/api/progress/ex
 - `POST /api/imports/{id}/pause` and `POST /api/game-analysis/{id}/pause` `{}` disable background processing. These routes return the updated owned ImportJob/GameAnalysisReport and use the same authentication and Origin protection as the existing routes. Pause can be accepted while the engine is computing; that position may still be saved. `background_requested`, rather than `status:"running"` alone, determines whether more work is scheduled.
 - The API lifespan starts a worker, which fairly interleaves queued batches/reports by oldest checkpoint, with one bounded step at a time. PostgreSQL coordinator/advisory locks prevent duplicate background work across processes. Existing per-user and engine locks still apply. Temporary engine/lock contention is retried; engine failures preserve the last checkpoint and require explicit resume. Completion clears background intent.
 - Migration `0006_background_analysis` defaults existing records to paused; no historical analysis silently resumes. Pending intent survives process restart and is read from PostgreSQL without a client connection. Graceful shutdown finishes the current bounded position; a crash can only lose the unfinished step.
-- The server must be running. The primary WSL server is updated according to `deploy/SERVER.md`; host sleep or shutdown suspends processing until it is running again. The archived Render Free deployment may sleep after 15 minutes without incoming requests. Use an always-on host for uninterrupted long jobs. Screen Wake Lock only keeps the visible training display awake; background execution does not depend on it.
+- The server must be running. The primary PC uses Windows Docker Desktop and WSL2; update it according to [deploy/SERVER.md](deploy/SERVER.md). Docker Desktop must be running, and host sleep or shutdown suspends processing. Closing the Mac browser or turning off the development Mac does not stop the server worker. Screen Wake Lock only keeps the visible training display awake; background execution does not depend on it.
 
 ## Stockfish benchmark
 

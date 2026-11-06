@@ -30,9 +30,11 @@ Override запускает Alembic и Uvicorn без `app.bootstrap` и зад�
 
 Всегда указывай проект и оба Compose-файла явно. Не устанавливай второй Docker Engine в Ubuntu и не останавливай общий Docker Desktop для обычного обновления тренажёра.
 
+Перенос завершён и принят пользователем. `deploy-new-server.sh`, `install-restored.sh`, первоначальный импорт и восстановление старого дампа из архива переноса не входят в обновление работающего сервера. Архив сохраняется как резервная копия. Серверный `DEPLOYMENT.txt` хранит сведения исходной установки; при каждом релизе добавляй в него фактический SHA запущенного приложения и путь нового бэкапа, сохраняя историю. Запись установщика о pending acceptance больше не описывает текущий статус: пользовательские проверки выполнены.
+
 ## Обновление приложения
 
-Разрабатывай и проверяй код на Mac, публикуй выбранный коммит в GitHub `main`, затем обновляй сервер. Выполняй блоки последовательно в одной Bash-сессии сервера; при ошибке остановись. Для изменений только документации достаточно проверки диффа и fast-forward: бэкап, сборка и перезапуск приложения не нужны.
+Разрабатывай и проверяй код на Mac, публикуй выбранный коммит в GitHub `main`, затем обновляй сервер. С Mac с включённым WireGuard подключись командой `ssh -p 22 root@10.66.0.2`. Выполняй блоки последовательно в одной Bash-сессии сервера; при ошибке остановись. Для изменений только документации используй отдельный раздел ниже.
 
 ### 1. Проверь текущий код и целевой коммит
 
@@ -65,11 +67,16 @@ mkdir "$CHESS_BACKUP"
 printf '%s\n' "$CHESS_PREVIOUS_SHA" > "$CHESS_BACKUP/code.sha"
 cp .env compose.wireguard.yml "$CHESS_BACKUP/"
 if [ -f DEPLOYMENT.txt ]; then cp DEPLOYMENT.txt "$CHESS_BACKUP/"; fi
+dc images --format json > "$CHESS_BACKUP/images-before.json"
 dc exec -T db pg_dump -U trainer -d tactics --format=custom > "$CHESS_BACKUP/tactics.dump.partial"
 test -s "$CHESS_BACKUP/tactics.dump.partial"
 dc exec -T db pg_restore --list < "$CHESS_BACKUP/tactics.dump.partial" > "$CHESS_BACKUP/tactics.toc"
 mv "$CHESS_BACKUP/tactics.dump.partial" "$CHESS_BACKUP/tactics.dump"
-(cd "$CHESS_BACKUP" && sha256sum tactics.dump .env compose.wireguard.yml code.sha tactics.toc > SHA256SUMS)
+(
+cd "$CHESS_BACKUP"
+sha256sum tactics.dump .env compose.wireguard.yml code.sha tactics.toc images-before.json > SHA256SUMS
+if [ -f DEPLOYMENT.txt ]; then sha256sum DEPLOYMENT.txt >> SHA256SUMS; fi
+)
 printf 'Backup: /opt/chess-trainer/%s\n' "$CHESS_BACKUP"
 ```
 
@@ -88,6 +95,8 @@ scp -r -P 22 "root@10.66.0.2:/opt/chess-trainer/backups/${CHESS_BACKUP_NAME}" /U
 
 Дамп и `.env` содержат закрытые данные. Копия только внутри Docker Desktop или на том же ПК не защищает от его потери. Проверяй восстановление резервных копий в отдельную базу; не используй рабочую базу для проверки восстановления.
 
+Один `bash scripts/backup.sh` не заменяет этот шаг: helper выбирает Compose из окружения/`.env` и сохраняет только дамп, без проверки читаемости, серверной конфигурации и внешней копии. Для основного сервера используй явный `dc` и полный порядок выше.
+
 ### 3. Обнови и проверь приложение
 
 После проверки внешней копии продолжай в исходной Bash-сессии сервера:
@@ -96,12 +105,31 @@ scp -r -P 22 "root@10.66.0.2:/opt/chess-trainer/backups/${CHESS_BACKUP_NAME}" /U
 git merge --ff-only "$CHESS_TARGET_SHA"
 test "$(git rev-parse HEAD)" = "$CHESS_TARGET_SHA"
 dc config --quiet
+dc config --format json | python3 -c '
+import json, sys
+c = json.load(sys.stdin)
+s = c["services"]
+assert c["name"] == "chess-trainer", "Wrong Compose project"
+assert c["volumes"]["pgdata"]["name"] == "chess-trainer_pgdata", "Wrong database volume"
+mounts = [v for v in s["db"].get("volumes", []) if v.get("target") == "/var/lib/postgresql/data"]
+assert len(mounts) == 1 and mounts[0].get("type") == "volume" and mounts[0].get("source") == "pgdata", "Wrong PostgreSQL data mount"
+assert s["db"]["image"].startswith("postgres:17"), "Wrong PostgreSQL major version"
+assert not s["db"].get("ports") and not s["backend"].get("ports"), "API or database published on host"
+p = s["frontend"].get("ports", [])
+assert len(p) == 1 and p[0].get("host_ip") == "127.0.0.1" and str(p[0].get("published")) == "18080" and int(p[0]["target"]) == 80, "Unexpected frontend publication"
+assert s["backend"]["environment"].get("AUTH_PASSWORD") == "", "Bootstrap password must be empty"
+command = str(s["backend"].get("command", ""))
+assert "bootstrap" not in command and "alembic upgrade head" in command and "uvicorn app.main:app" in command, "Unexpected backend startup command"
+print("Project, volume, private ports and bootstrap settings verified.")
+'
+docker volume inspect chess-trainer_pgdata >/dev/null
 dc build backend frontend
 dc up -d --wait --wait-timeout 240
 dc exec -T frontend nginx -t
 dc exec -T frontend nginx -s reload
 dc exec -T backend python -c 'import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/health",timeout=10)); assert h.get("status")=="ok" and h.get("database")=="ok" and h.get("engine_available") is True, h; print(json.dumps(h))'
 dc ps
+dc images
 git rev-parse HEAD
 ```
 
@@ -115,6 +143,20 @@ curl --fail --silent --show-error --max-time 15 http://10.66.0.2:8080/api/health
 
 При необходимости проверь `http://127.0.0.1:18080/api/health` в Windows. Доступность этого порта на loopback конкретного WSL-дистрибутива отдельно не подтверждена, поэтому она не является единственной проверкой установки. Зафиксируй SHA, путь бэкапа и результаты проверок.
 
+Обновление файлов через Git само по себе не меняет уже запущенные контейнеры. Отмечай релиз как установленный только после успешных сборки, запуска и проверок. Не публикуй полный вывод `dc config`: он содержит пароль БД; проверка выше читает его в памяти и печатает только результат.
+
+## Обновление только инструкций
+
+Выполни раздел 1 и изучи **весь** дифф от `CHESS_PREVIOUS_SHA` до `CHESS_TARGET_SHA`. Если изменены только документы или комментарии в шаблоне, не затрагивающие рабочую конфигурацию, достаточно:
+
+```bash
+git diff "$CHESS_PREVIOUS_SHA" "$CHESS_TARGET_SHA"
+git merge --ff-only "$CHESS_TARGET_SHA"
+test "$(git rev-parse HEAD)" = "$CHESS_TARGET_SHA"
+```
+
+Бэкап PostgreSQL, пересборка, перезапуск контейнеров и Windows helper здесь не нужны. Если опубликована команда с конкретным проверенным SHA документации, используй его: более поздний `origin/main` уже может содержать изменения приложения. При наличии изменений кода/миграций возвращайся к полному порядку с бэкапом. Не меняй запись о версии запущенного приложения на SHA документации — контейнеры при таком обновлении остались прежними. На Mac проверяй локальные изменения и получай опубликованные коммиты через fast-forward в своём рабочем репозитории; серверную `.env` и дампы в него не копируй.
+
 ## Автозапуск и резервное копирование
 
 - У всех трёх сервисов есть `restart: unless-stopped`: контейнеры возобновляют работу после запуска Docker Desktop, если не были явно остановлены. systemd в Ubuntu не запускает Windows Docker Desktop.
@@ -127,8 +169,10 @@ curl --fail --silent --show-error --max-time 15 http://10.66.0.2:8080/api/health
 
 6 ноября 2026 года установлены код `7fecc367d316b2804711a94cb114bd366e8b3b2b` и снимок PostgreSQL от **04:27 UTC**. Полные данные 16 таблиц проверены до запуска приложения. Единственное учтённое различие — доказанно эквивалентная запись одного CHECK-ограничения после `pg_restore`; остальные данные и структура проверялись строго. Отчёты установки находятся в `/opt/chess-trainer/backups/migration-20261106T045001Z`.
 
-По выводу установки подтверждены восстановление базы, health API и реальный поиск Stockfish. Windows helper подтвердил локальный health через forwarding; пользователь подтвердил открытие сайта с Mac через WireGuard. Полная пользовательская проверка входа, тренировок и анализа, проверки запрета LAN/публичного доступа и тест перезагрузки пока отдельно не подтверждены.
+По выводу установки подтверждены восстановление базы, health API и реальный поиск Stockfish. Windows helper подтвердил локальный health через forwarding. Пользователь подтвердил с Mac через WireGuard прежний вход, наличие своих партий и отчётов, прохождение тренировки и запуск анализа. Функциональная проверка переноса завершена. Проверки запрета LAN/публичного доступа и тест перезагрузки пока отдельно не подтверждены; ежедневное резервное копирование ещё не настроено.
 
 Прежний сервер `100.105.139.68:2222` сохранён через Tailscale как резерв перехода. Это независимая база: изменения на нём после снимка автоматически не переносятся, а новые записи основного сервера туда не реплицируются. Используй новый сайт для дальнейшей работы; не обновляй старый сервер в рамках обычного релиза. До его отключения проверь, не осталось ли на нём неперенесённых записей после 04:27 UTC.
 
-Для отката на основном сервере используй сохранённый предыдущий SHA после проверки совместимости с текущей схемой БД. Сохраняй `compose.wireguard.yml`, проект `chess-trainer`, том и закрытый маршрут WireGuard. Старый дамп не восстанавливай поверх новых пользовательских данных автоматически: сначала сохрани текущее состояние и проверь восстановление отдельно. Возврат к прежнему ПК также требует отдельного согласования данных, чтобы не потерять записи нового сервера.
+Для отката на основном сервере используй сохранённый предыдущий SHA после проверки совместимости с текущей схемой БД. Один Git checkout не откатывает работающие образы: пересобери совместимый старый код и пересоздай сервисы с теми же Compose-файлами либо используй заранее сохранённые проверенные образы. `images-before.json` фиксирует прежние идентификаторы, но не является архивом образов. После отката повтори nginx reload и проверки.
+
+Сохраняй `compose.wireguard.yml`, проект `chess-trainer`, том и закрытый маршрут WireGuard. Старый дамп не восстанавливай поверх новых пользовательских данных автоматически: сначала сохрани текущее состояние и проверь восстановление отдельно. Возврат к прежнему ПК также требует отдельного согласования данных, чтобы не потерять записи нового сервера.

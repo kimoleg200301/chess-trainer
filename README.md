@@ -119,15 +119,20 @@ Mac M3 используется для разработки в `/Users/kim/IdeaP
 
 [deploy/SERVER.md](deploy/SERVER.md) — актуальная инструкция по доступу, резервному копированию, обновлению, проверкам и откату рабочего сервера. Сохраняйте его `.env`, Compose override и базу данных; учётные записи уже находятся в PostgreSQL, bootstrap при обновлении отключён.
 
+Порядок работы: изменения и проверки на Mac → проверенный коммит в GitHub `main` → полный бэкап текущей серверной БД и копия вне ПК → fast-forward выбранного коммита на сервере → сборка и запуск с `-p chess-trainer -f compose.yml -f compose.wireguard.yml` → проверка через WireGuard. Подробные команды и отдельный порядок для изменений только документации приведены в `deploy/SERVER.md`. Установщики из архива переноса повторно не запускаются.
+
 Описание альтернативных схем размещения сохранено в [архиве deploy/CLOUD.md](deploy/CLOUD.md).
 
 ## Первый локальный запуск для разработки
 
-Выполняйте эти команды в отдельном локальном клоне с новой базой. Нужны Docker Engine/Desktop с Compose и Python 3 для генерации конфигурации.
+Выполняйте эти команды в отдельном локальном клоне с новой базой; они не предназначены для рабочего сервера. На Mac используйте `/Users/kim/IdeaProjects/chess-trainer` и Docker Desktop для Apple Silicon. Образы собираются для M3 нативно, без принудительного `linux/amd64`. Нужны Docker Engine/Desktop с Compose и Python 3 для генерации конфигурации. Серверную `.env` на Mac не копируйте.
 
 ```bash
+(
+set -e
 python3 scripts/configure.py
-docker compose up -d --build
+docker compose -p chess-trainer-mac --env-file .env -f compose.yml up -d --build
+)
 ```
 
 Откройте http://localhost:8080. Логин указан в `AUTH_USERNAME`, пароль — в `AUTH_PASSWORD` файла `.env`. Генератор создаёт случайные пароли и не перезаписывает существующий файл. `.env` не включается в Git и Docker-образы.
@@ -135,19 +140,19 @@ docker compose up -d --build
 При первом запуске выполняются миграции Alembic и импорт задач. Дождитесь состояния `healthy`:
 
 ```bash
-docker compose ps
-docker compose logs --tail=60 backend
+docker compose -p chess-trainer-mac --env-file .env -f compose.yml ps
+docker compose -p chess-trainer-mac --env-file .env -f compose.yml logs --tail=60 backend
 ```
 
-Команда `docker compose down` останавливает приложение и сохраняет том PostgreSQL. Флаг `down -v` удаляет данные — не используйте его для обычной остановки.
+Команда `docker compose -p chess-trainer-mac --env-file .env -f compose.yml down` останавливает только этот локальный проект и сохраняет его том PostgreSQL. Флаг `down -v` удаляет данные — не используйте его для обычной остановки.
 
-В управляемой среде Codex сборке может требоваться доверенный CA прокси:
+Следующий пример относится только к отдельной управляемой среде Codex, где сборке может требоваться доверенный CA прокси:
 
 ```bash
-docker compose -f compose.yml -f compose.managed.yml up -d --build
+docker compose -p chess-trainer-sandbox --env-file .env -f compose.yml -f compose.managed.yml up -d --build
 ```
 
-Этот дополнительный файл не нужен на обычном VPS. Он передаёт доверенные сертификаты только на время сборки, без отключения TLS-проверки.
+Этот дополнительный файл не нужен ни на Mac, ни на основном ПК и не заменяет серверный `compose.wireguard.yml`. Он передаёт доверенные сертификаты только на время сборки, без отключения TLS-проверки.
 
 ## Данные и резервное копирование
 
